@@ -82,6 +82,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for sendResponse
   }
 
+  if (message.action === 'COMMENT_DETECTED') {
+    const { id, author, text } = message.data || {};
+    
+    // Defensive: guard against missing/malformed payload
+    if (!id || !author) {
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
+        'missing required fields (id or author). Received data:', JSON.stringify(message.data));
+      sendResponse({ success: false, error: 'Missing required comment fields (id/author)' });
+    } else if (!text) {
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
+        'missing text field. Received data:', JSON.stringify(message.data));
+      sendResponse({ success: false, error: 'Missing required comment field (text)' });
+    } else {
+      // Log receipt with truncated text preview
+      const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+      console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
+        `id=${id}, author=${author}, text="${textPreview}"`);
+      sendResponse({ success: true, received: true });
+    }
+    return true; // Keep channel open for sendResponse
+  }
+
   // Default response for unknown message types
   sendResponse({ status: 'ok' });
   return true;
