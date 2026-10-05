@@ -15,7 +15,10 @@ const DEFAULT_CONFIG = {
     apiKey: "lm-studio",
     model: "",
     temperature: 0.7,
-    maxTokens: 150,
+    // maxTokens: 1500 - Reasoning models (e.g., qwen3.5-9b) spend tokens on internal thinking first.
+    // With 150, every reply is empty because the model exhausts its budget reasoning before generating content.
+    // Based on measurements: ~628 tokens for reasoning + headroom for actual response = need ~700+ total.
+    maxTokens: 1500,
     systemPrompt: ""
   },
 

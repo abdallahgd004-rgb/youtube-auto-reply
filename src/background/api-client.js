@@ -15,7 +15,10 @@ const DEFAULT_TIMEOUT_MS = 30000;
  * 
  * @param {Array<Object>} messages - Array of message objects with role and content
  * @param {Object} options - Optional override for specific settings (temperature, maxTokens)
- * @returns {Promise<Object>} Object containing text response and raw data
+ * @returns {Promise<Object>} Object with the following shape:
+ *   - `text`: The assistant's reply (from `content` field, or fallback to `reasoning_content` if empty)
+ *   - `reasoning`: The model's internal thinking (from `reasoning_content`, may be empty string)
+ *   - `raw`: The original response payload for debugging
  * @throws {Error} If the request fails or response is invalid
  */
 async function chatCompletion(messages, options = {}) {
@@ -97,18 +100,28 @@ async function chatCompletion(messages, options = {}) {
       throw new Error('LM Studio returned an invalid response (no choices)');
     }
 
-    // Extract the assistant's message content
+    // Extract the assistant's message from the OpenAI-compatible response shape
     const assistantMessage = responseData.choices[0].message;
-    
-    // Allow empty string as valid content (some models may return empty responses)
-    // Only throw error if content is truly missing or undefined
-    if (!assistantMessage.content && typeof assistantMessage.content !== 'string') {
-      throw new Error('LM Studio did not return a message content');
+
+    // The model returns both 'content' (actual reply) and 'reasoning_content' (internal thinking).
+    // For a clean user-facing text, prefer 'content', but fall back to 'reasoning_content'
+    // when content is empty or whitespace. This handles reasoning models that spend their token
+    // budget on thinking first.
+    const rawContent = assistantMessage.content;
+    const reasoningContent = assistantMessage.reasoning_content || '';
+
+    // Extract text: prefer content, fall back to reasoning_content if content is empty/whitespace
+    let text;
+    if (rawContent && typeof rawContent === 'string' && rawContent.trim() !== '') {
+      text = rawContent;  // Actual reply found in content field
+    } else {
+      text = reasoningContent;  // Fallback to reasoning_content when content is empty
     }
 
-    // Return the result with extracted text and raw response for debugging
+    // Return the result with extracted text, reasoning (if any), and raw response for debugging
     return {
-      text: assistantMessage.content,
+      text,
+      reasoning: reasoningContent,
       raw: responseData
     };
 
