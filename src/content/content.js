@@ -56,7 +56,9 @@ function processBatch(nodes) {
       console.log('[YouTube Auto Reply] New comment detected:', parsedComment.text.substring(0, 50) + '...');
       
       // Send to background via message bridge
-      sendMessage('COMMENT_DETECTED', { comment: parsedComment });
+      sendMessage('COMMENT_DETECTED', { comment: parsedComment }).catch(function (err) {
+        console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + parsedComment.id + ': ' + err.message);
+      });
     }
 
     // Also check for nested comment threads within the mutation.
@@ -70,7 +72,9 @@ function processBatch(nodes) {
           
           console.log('[YouTube Auto Reply] New comment detected:', pc.text.substring(0, 50) + '...');
           
-          sendMessage('COMMENT_DETECTED', { comment: pc });
+          sendMessage('COMMENT_DETECTED', { comment: pc }).catch(function (err) {
+            console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + pc.id + ': ' + err.message);
+          });
         }
       });
     }
@@ -132,6 +136,8 @@ function setupMutationObserver(enabled) {
       observer.disconnect();
     });
   }
+
+  observeComments();
 }
 
 /**
@@ -177,8 +183,70 @@ async function detectExistingComments(enabled) {
     console.log('[YouTube Auto Reply] Comment detected:', textPreview + '...');
     
     // Send to background via message bridge
-    sendMessage('COMMENT_DETECTED', { comment: parsedComment });
+    sendMessage('COMMENT_DETECTED', { comment: parsedComment }).catch(function (err) {
+      console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + parsedComment.id + ': ' + err.message);
+    });
   }
+}
+
+// ─── Async reply queue (Phase 8.3) ──────────────────────────────────────────
+// Two replies must never be prepared at the same time — overlapping DOM clicks
+// on the same page would post half-finished replies or corrupt state.
+let _replyQueue = Promise.resolve(); // chain head; new work is appended
+
+/**
+ * Enqueue a reply-processing task.  If another task is running, this one waits.
+ *
+ * @param {Function} fn - Async function taking (comment, response)
+ */
+function enqueueReply(fn) {
+  _replyQueue = _replyQueue.then(function () {
+    return fn().catch(function (err) {
+      console.error('[YouTube Auto Reply] Reply queue task failed:', err.message);
+    });
+  });
+}
+
+/**
+ * Handle a MATCH response from the background.  Runs sequentially via the queue.
+ *
+ * @param {Object} comment - Local parsed comment (has .element)
+ * @param {Object} response - Response object from sendMessage
+ */
+async function handleMatchReply(comment, response) {
+  console.log('[YouTube Auto Reply] MATCH detected for comment id=' + comment.id + '; preparing reply');
+
+  const adapter = new SiteAdapter();
+
+  // Step a: find the reply button
+  var replyBtn = adapter.findReplyButton(comment);
+  if (!replyBtn) {
+    console.error('[YouTube Auto Reply] handleMatchReply: findReplyButton returned null for comment id=' + comment.id);
+    return;
+  }
+
+  // Step b: open the reply box (async)
+  var replyBox = await adapter.openReplyBox(comment);
+  if (!replyBox) {
+    console.error('[YouTube Auto Reply] handleMatchReply: openReplyBox returned null for comment id=' + comment.id);
+    return;
+  }
+
+  // Step c: set the reply text
+  var setTextOk = adapter.setReplyText(replyBox, response.reply);
+  if (!setTextOk) {
+    console.error('[YouTube Auto Reply] handleMatchReply: setReplyText returned false for comment id=' + comment.id);
+    return;
+  }
+
+  // Step d: submit the reply (async; respects dryRun gate internally)
+  var submitted = await adapter.submitReply(replyBox);
+  if (!submitted) {
+    console.warn('[YouTube Auto Reply] handleMatchReply: submitReply returned false for comment id=' + comment.id);
+    return;
+  }
+
+  console.log('[YouTube Auto Reply] handleMatchReply: reply submission completed for comment id=' + comment.id);
 }
 
 /**
@@ -240,36 +308,67 @@ function deepStripNonSerializable(value) {
 
 /**
  * Send a message to the background service worker.
+ *
+ * Returns a Promise that resolves with the response object on success,
+ * or rejects if chrome.runtime.sendMessage fails (network error, timeout,
+ * or the background script throws).
+ *
+ * The callback still fires for logging; callers should await the returned
+ * promise for the actual result.  Existing call sites that ignore the
+ * return value continue to work.
  */
 function sendMessage(action, data) {
   if (!chrome.runtime || !chrome.runtime.sendMessage) {
-    return;
+    return Promise.reject(new Error('chrome.runtime not available'));
   }
 
   // Generic sanitizer with null guard
   const payload = data === undefined ? undefined : deepStripNonSerializable(data);
 
-  chrome.runtime.sendMessage({ action: action, data: payload }, function(response) {
-    // Defect 8 fix: Check for runtime errors before handling response
-    if (chrome.runtime.lastError) {
-      console.error('[YouTube Auto Reply] Message failed:', chrome.runtime.lastError.message);
-      return;
-    }
+  return new Promise(function (resolve, reject) {
+    chrome.runtime.sendMessage({ action: action, data: payload }, function (response) {
+      // Defect 8 fix: Check for runtime errors before handling response
+      if (chrome.runtime.lastError) {
+        const err = new Error('Message failed: ' + chrome.runtime.lastError.message);
+        console.error('[YouTube Auto Reply] Message failed:', chrome.runtime.lastError.message);
+        reject(err);
+        return;
+      }
 
-    // Log the received response from background
-    if (!response || !response.success) {
-      const errorMsg = response?.error ? `: ${response.error}` : '';
-      console.error(`[YouTube Auto Reply] Background response failed${errorMsg}`);
-      return;
-    }
+      // Log the received response from background
+      if (!response || !response.success) {
+        const errorMsg = response && response.error ? ': ' + response.error : '';
+        console.error('[YouTube Auto Reply] Background response failed' + errorMsg);
+        reject(new Error('Background response failed' + errorMsg));
+        return;
+      }
 
-    // Success case - log the echoed id to prove round-trip works
-    if (response.id !== undefined) {
-      console.log(`[YouTube Auto Reply] Round-trip confirmed: background received comment id="${response.id}"`);
-    } else if (response.received === true) {
-      // Legacy response format for backward compatibility
-      console.log('[YouTube Auto Reply] Background acknowledged message');
-    }
+      // Success case - log the echoed id to prove round-trip works
+      if (response.id !== undefined) {
+        console.log('[YouTube Auto Reply] Round-trip confirmed: background received comment id="' + response.id + '"');
+      } else if (response.received === true) {
+        // Legacy response format for backward compatibility
+        console.log('[YouTube Auto Reply] Background acknowledged message');
+      }
+
+      // Phase 8.3: Act on MATCH responses — enqueue reply processing
+      if (response.result === 'MATCH' && response.reply) {
+        // The local `data` object still has the full comment with .element;
+        // the response only carries the stripped payload.
+        var localComment = data && data.comment ? data.comment : null;
+        if (localComment) {
+          enqueueReply(function () {
+            return handleMatchReply(localComment, response);
+          });
+        }
+      } else if (response.result === 'MATCH' && !response.reply) {
+        console.log('[YouTube Auto Reply] MATCH but empty reply — skipping for comment id=' + (response.id || '?'));
+      } else if (response.result === 'NO_MATCH') {
+        console.log('[YouTube Auto Reply] NO_MATCH for comment id=' + (response.id || '?'));
+      }
+
+      resolve(response);
+    });
   });
 }
 
@@ -295,10 +394,13 @@ async function init() {
     console.error('[YouTube Auto Reply] Error in detectExistingComments:', error);
   });
 
-  // Set up MutationObserver for new comments (throttled) with error handling (Defect 9 fix)
-  setupMutationObserver(enabled).catch(error => {
+  // Set up MutationObserver for new comments (throttled).
+  // setupMutationObserver is synchronous, so wrap in try/catch — .catch() on undefined throws.
+  try {
+    setupMutationObserver(enabled);
+  } catch (error) {
     console.error('[YouTube Auto Reply] Error in setupMutationObserver:', error);
-  });
+  }
 }
 
 // Run initialization when DOM is ready
