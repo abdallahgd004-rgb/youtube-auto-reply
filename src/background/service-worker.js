@@ -73,6 +73,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for sendResponse
   }
 
+  if (message.action === 'GET_ENABLED_STATE') {
+    chrome.storage.local.get('enabled', result => {
+      const enabled = result.enabled !== undefined ? result.enabled : false;
+      sendResponse({ enabled: enabled });
+      return true; // Keep channel open for sendResponse
+    });
+    return true; // Keep channel open for sendResponse
+  }
+
   // Default response for unknown message types
   sendResponse({ status: 'ok' });
   return true;
