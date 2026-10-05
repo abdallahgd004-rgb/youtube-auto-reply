@@ -48,4 +48,4 @@ export const VALID_MATCH_MODES = ["contains", "exact"];
 /**
  * Export the schema definitions.
  */
-export { DEFAULT_TRIGGER_RULE, VALID_MATCH_MODES };
+export { DEFAULT_TRIGGER_RULE };

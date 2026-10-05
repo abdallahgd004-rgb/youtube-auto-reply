@@ -1,12 +1,15 @@
 // Background Service Worker - YouTube Auto Reply Extension
-// Phase 1: Minimal initialization only + Phase 3.5: Connection Test
+// Phase 6.3: Matching logic with trigger rules
 
 console.log('[YouTube Auto Reply] Background service worker initialized');
 
 import { getModels, chatCompletion } from './api-client.js';
+import { getTriggers } from '../core/trigger-crud.js';
+import { match as containsMatch } from '../core/matchers/contains-matcher.js';
+import { match as exactMatch } from '../core/matchers/exact-matcher.js';
 
 // Single consolidated message handler for all message types
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   if (message.action === 'openPopup') {
     chrome.tabs.create({ url: 'popup/popup.html' });
     return true; // Keep channel open for sendResponse
@@ -101,7 +104,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
       console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
         `id=${id}, author=${logAuthor}, text="${textPreview}"`);
-      sendResponse({ success: true, id: id });
+
+      // Fetch trigger rules and perform matching
+      let verdict = { success: true, id };
+      try {
+        const triggers = await getTriggers();
+        
+        // Filter to only enabled rules with non-empty phrases arrays
+        const activeRules = triggers.filter(rule => rule.enabled && Array.isArray(rule.phrases) && rule.phrases.length > 0);
+        
+        if (activeRules.length === 0) {
+          console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no enabled rules');
+          verdict.result = 'NO_MATCH';
+        } else {
+          // Iterate through active rules; first match wins
+          for (const rule of activeRules) {
+            let matchedResult;
+            
+            if (rule.matchMode === 'contains') {
+              matchedResult = containsMatch(text, rule.phrases, rule.caseSensitive);
+            } else if (rule.matchMode === 'exact') {
+              matchedResult = exactMatch(text, rule.phrases, rule.caseSensitive);
+            } else {
+              // Unknown match mode - skip this rule
+              console.warn(`[YouTube Auto Reply] COMMENT_DETECTED: skipping rule ${rule.id} with unknown matchMode "${rule.matchMode}"`);
+              continue;
+            }
+            
+            if (matchedResult.matched) {
+              const matchedPhrase = matchedResult.matchedPhrase || '';
+              console.log(`[YouTube Auto Reply] COMMENT_DETECTED: MATCH - id=${id}, result=MATCH, phrase="${matchedPhrase}"`);
+              verdict.result = 'MATCH';
+              verdict.matchedPhrase = matchedPhrase;
+              verdict.ruleId = rule.id;
+              break; // First match wins
+            }
+          }
+          
+          if (!verdict.result) {
+            console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no rules matched');
+            verdict.result = 'NO_MATCH';
+          }
+        }
+      } catch (error) {
+        console.error('[YouTube Auto Reply] COMMENT_DETECTED error:', error.message);
+        sendResponse({ success: false, error: `Matching failed: ${error.message}` });
+        return true; // Keep channel open for sendResponse
+      }
+      
+      sendResponse(verdict);
     }
     return true; // Keep channel open for sendResponse
   }
