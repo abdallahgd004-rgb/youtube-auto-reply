@@ -101,7 +101,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
       console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
         `id=${id}, author=${logAuthor}, text="${textPreview}"`);
-      sendResponse({ success: true, received: true });
+      sendResponse({ success: true, id: id });
     }
     return true; // Keep channel open for sendResponse
   }

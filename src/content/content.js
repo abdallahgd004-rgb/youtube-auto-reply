@@ -256,8 +256,20 @@ function sendMessage(action, data) {
       return;
     }
 
-    // Response handling can be added later when needed
-    console.log('[YouTube Auto Reply] Message sent successfully');
+    // Log the received response from background
+    if (!response || !response.success) {
+      const errorMsg = response?.error ? `: ${response.error}` : '';
+      console.error(`[YouTube Auto Reply] Background response failed${errorMsg}`);
+      return;
+    }
+
+    // Success case - log the echoed id to prove round-trip works
+    if (response.id !== undefined) {
+      console.log(`[YouTube Auto Reply] Round-trip confirmed: background received comment id="${response.id}"`);
+    } else if (response.received === true) {
+      // Legacy response format for backward compatibility
+      console.log('[YouTube Auto Reply] Background acknowledged message');
+    }
   });
 }
 
