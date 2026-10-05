@@ -1,5 +1,6 @@
 // Background Service Worker - YouTube Auto Reply Extension
 // Phase 6.3: Matching logic with trigger rules
+// Phase 9.x: Deduplication — handled-comments store + in-session reply deduplicator
 
 console.log('[YouTube Auto Reply] Background service worker initialized');
 
@@ -9,6 +10,20 @@ import { match as containsMatch } from '../core/matchers/contains-matcher.js';
 import { match as exactMatch } from '../core/matchers/exact-matcher.js';
 import { buildReplyPrompt } from '../core/prompt-builder.js';
 import { getSettings } from '../core/storage.js';
+
+// Phase 9.x — Deduplication imports
+import { createFingerprint } from '../core/comment-fingerprint.js';
+import { isHandled, markHandled } from '../core/handled-comments.js';
+import { createReplyDeduplicator } from '../core/reply-deduplicator.js';
+
+// In-session reply deduplicator (fast path).
+// NOTE: This state is lost when the service worker is killed and restarted.
+// That is acceptable — the persistent `handledComments` store in chrome.storage.local
+// is the real guard; this deduplicator just avoids redundant LM Studio calls within a session.
+const replyDedup = createReplyDeduplicator();
+
+// Platform constant for this single-platform MVP (YouTube only).
+const PLATFORM_SITE = 'YouTube';
 
 // Single consolidated message handler for all message types
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
@@ -107,6 +122,20 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
         `id=${id}, author=${logAuthor}, text="${textPreview}"`);
 
+      // ── Phase 9.x: Build fingerprint and check handled store ───────────────
+      const comment = message.data?.comment;
+      const pageInfo = {
+        site: PLATFORM_SITE,
+        url: sender.tab?.url,   // undefined if sender.tab is absent (e.g. extension page)
+      };
+      const fingerprint = createFingerprint(comment, pageInfo);
+
+      if (await isHandled(fingerprint)) {
+        console.log(`[YouTube Auto Reply] COMMENT_DETECTED: SKIPPED_ALREADY_HANDLED - fp=${fingerprint}`);
+        sendResponse({ success: true, id, result: 'SKIPPED_ALREADY_HANDLED' });
+        return true;
+      }
+
       // Fetch trigger rules and perform matching
       let verdict = { success: true, id };
       try {
@@ -156,9 +185,11 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
       
       // Only attempt generation when verdict.result === 'MATCH'
       if (verdict.result === 'MATCH') {
+        let settings;
+        let messages;
         try {
-          const settings = await getSettings();
-          const messages = buildReplyPrompt({ text }, settings);
+          settings = await getSettings();
+          messages = buildReplyPrompt({ text }, settings);
         } catch (error) {
           console.error('[YouTube Auto Reply] COMMENT_DETECTED: Prompt build failed:', error.message);
           sendResponse({ success: false, error: `Prompt build failed: ${error.message}` });
@@ -168,11 +199,39 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         try {
           console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation attempted for comment id=${verdict.id}`);
           const result = await chatCompletion(messages);
-          
+
           // Log outcome AFTER the call resolves
-          const text = result.text || '';
-          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${text.length}, preview="${(text || '').substring(0, 100)}..."`);
-          verdict.reply = text;
+          const replyText = result.text || '';
+          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${replyText.length}, preview="${(replyText || '').substring(0, 100)}..."`);
+          verdict.reply = replyText;
+
+          // ── Two independent decisions, deliberately decoupled ───────────────
+          // 1. In-session reply deduplication (replyDedup): may suppress
+          //    near-identical replies across different comments in the same cycle.
+          // 2. Persistent marking (markHandled): records that THIS comment was
+          //    handled so it won't be replayed after a service-worker restart.
+          // The persistent store must NOT depend on reply similarity — two
+          // different comments should both be recorded even if their replies
+          // are near-duplicates (Rule 4 of the deduplicator). See bug #2.
+
+          // Decision A: in-session reply deduplication verdict.
+          const isReplyDuplicate = replyDedup.isDuplicate({
+            reply: replyText,
+            commentId: verdict.id,
+          });
+          if (isReplyDuplicate) {
+            console.log(
+              `[YouTube Auto Reply] COMMENT_DETECTED: in-session duplicate suppressed - fp=${fingerprint}`
+            );
+          }
+
+          // Decision B: persistent marking — independent of reply similarity.
+          // Only mark when generation succeeded, the reply is non-empty,
+          // and dry-run is disabled. An empty reply is not a real reply;
+          // persisting it would silently lose the comment.
+          if (replyText && !settings.dryRun) {
+            await markHandled(fingerprint);
+          }
         } catch (error) {
           console.error('[YouTube Auto Reply] COMMENT_DETECTED: Generation failed:', error.message);
           sendResponse({ success: false, error: `Generation failed: ${error.message}` });
