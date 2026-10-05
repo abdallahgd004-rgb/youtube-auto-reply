@@ -16,6 +16,10 @@ import { createFingerprint } from '../core/comment-fingerprint.js';
 import { isHandled, markHandled } from '../core/handled-comments.js';
 import { createReplyDeduplicator } from '../core/reply-deduplicator.js';
 
+// Phase 10.2 — One-at-a-time job queue
+import { createQueue } from '../core/queue.js';
+const jobQueue = createQueue();
+
 // In-session reply deduplicator (fast path).
 // NOTE: This state is lost when the service worker is killed and restarted.
 // That is acceptable — the persistent `handledComments` store in chrome.storage.local
@@ -24,6 +28,160 @@ const replyDedup = createReplyDeduplicator();
 
 // Platform constant for this single-platform MVP (YouTube only).
 const PLATFORM_SITE = 'YouTube';
+
+// ─── Phase 10.2 — Sequential job processor ────────────────────────────────
+/**
+ * Process a single COMMENT_DETECTED job.
+ *
+ * This is the EXISTING per-comment logic moved verbatim from the listener,
+ * preserving every log line, every response field name, and the exactly-once
+ * sendResponse behaviour.  The only structural change is that it receives its
+ * inputs as properties on `job` instead of reading them from closure variables.
+ */
+let workerRunning = false;
+
+/**
+ * Start the worker loop if it is not already running.
+ *
+ * The guard ensures at most one drain-loop runs at any time — jobs are
+ * processed strictly FIFO, one-at-a-time.
+ */
+function ensureWorkerRunning() {
+  if (workerRunning) return;
+  workerRunning = true;
+  (async () => {
+    try {
+      while (!jobQueue.isEmpty()) {
+        const job = jobQueue.dequeue();
+        try {
+          await processJob(job);
+        } catch (error) {
+          console.error('[YouTube Auto Reply] job processor: unhandled error, continuing:', error.message);
+          try { job.respondOnce({ success: false, error: `Processing failed: ${error.message}` }); }
+          catch (_) {}
+        }
+      }
+    } finally {
+      workerRunning = false;
+    }
+  })();
+}
+
+async function processJob(job) {
+  const { id, text, fingerprint } = job;
+
+  // ── Phase 9.x: Build fingerprint and check handled store ───────────────
+  if (await isHandled(fingerprint)) {
+    console.log(`[YouTube Auto Reply] COMMENT_DETECTED: SKIPPED_ALREADY_HANDLED - fp=${fingerprint}`);
+    job.respondOnce({ success: true, id, result: 'SKIPPED_ALREADY_HANDLED' });
+    return;
+  }
+
+  // Fetch trigger rules and perform matching
+  let verdict = { success: true, id };
+  try {
+    const triggers = await getTriggers();
+
+    // Filter to only enabled rules with non-empty phrases arrays
+    const activeRules = triggers.filter(rule => rule.enabled && Array.isArray(rule.phrases) && rule.phrases.length > 0);
+
+    if (activeRules.length === 0) {
+      console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no enabled rules');
+      verdict.result = 'NO_MATCH';
+    } else {
+      // Iterate through active rules; first match wins
+      for (const rule of activeRules) {
+        let matchedResult;
+
+        if (rule.matchMode === 'contains') {
+          matchedResult = containsMatch(text, rule.phrases, rule.caseSensitive);
+        } else if (rule.matchMode === 'exact') {
+          matchedResult = exactMatch(text, rule.phrases, rule.caseSensitive);
+        } else {
+          // Unknown match mode - skip this rule
+          console.warn(`[YouTube Auto Reply] COMMENT_DETECTED: skipping rule ${rule.id} with unknown matchMode "${rule.matchMode}"`);
+          continue;
+        }
+
+        if (matchedResult.matched) {
+          const matchedPhrase = matchedResult.matchedPhrase || '';
+          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: MATCH - id=${id}, result=MATCH, phrase="${matchedPhrase}"`);
+          verdict.result = 'MATCH';
+          verdict.matchedPhrase = matchedPhrase;
+          verdict.ruleId = rule.id;
+          break; // First match wins
+        }
+      }
+
+      if (!verdict.result) {
+        console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no rules matched');
+        verdict.result = 'NO_MATCH';
+      }
+    }
+  } catch (error) {
+    console.error('[YouTube Auto Reply] COMMENT_DETECTED error:', error.message);
+    job.respondOnce({ success: false, error: `Matching failed: ${error.message}` });
+    return;
+  }
+
+  // Only attempt generation when verdict.result === 'MATCH'
+  if (verdict.result === 'MATCH') {
+    let settings;
+    let messages;
+    try {
+      settings = await getSettings();
+      messages = buildReplyPrompt({ text }, settings);
+    } catch (error) {
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED: Prompt build failed:', error.message);
+      job.respondOnce({ success: false, error: `Prompt build failed: ${error.message}` });
+      return;
+    }
+
+    try {
+      console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation attempted for comment id=${verdict.id}`);
+      const result = await chatCompletion(messages);
+
+      // Log outcome AFTER the call resolves
+      const replyText = result.text || '';
+      console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${replyText.length}, preview="${(replyText || '').substring(0, 100)}..."`);
+      verdict.reply = replyText;
+
+      // ── Two independent decisions, deliberately decoupled ───────────────
+      // 1. In-session reply deduplication (replyDedup): may suppress
+      //    near-identical replies across different comments in the same cycle.
+      // 2. Persistent marking (markHandled): records that THIS comment was
+      //    handled so it won't be replayed after a service-worker restart.
+      // The persistent store must NOT depend on reply similarity — two
+      // different comments should both be recorded even if their replies
+      // are near-duplicates (Rule 4 of the deduplicator). See bug #2.
+
+      // Decision A: in-session reply deduplication verdict.
+      const isReplyDuplicate = replyDedup.isDuplicate({
+        reply: replyText,
+        commentId: verdict.id,
+      });
+      if (isReplyDuplicate) {
+        console.log(
+          `[YouTube Auto Reply] COMMENT_DETECTED: in-session duplicate suppressed - fp=${fingerprint}`
+        );
+      }
+
+      // Decision B: persistent marking — independent of reply similarity.
+      // Only mark when generation succeeded, the reply is non-empty,
+      // and dry-run is disabled. An empty reply is not a real reply;
+      // persisting it would silently lose the comment.
+      if (replyText && !settings.dryRun) {
+        await markHandled(fingerprint);
+      }
+    } catch (error) {
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED: Generation failed:', error.message);
+      job.respondOnce({ success: false, error: `Generation failed: ${error.message}` });
+      return;
+    }
+  }
+
+  job.respondOnce(verdict);
+}
 
 // Single consolidated message handler for all message types
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
@@ -104,144 +262,48 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
 
   if (message.action === 'COMMENT_DETECTED') {
     const { id, author, text } = message.data || {};
-    
+
     // Defensive: guard against missing/malformed payload
-    // Only `id` is required (dedup key); `text` validated in parseComment; `author` may be empty.
     if (!id) {
-      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:',
         'missing id field. Received data:', JSON.stringify(message.data));
       sendResponse({ success: false, error: 'Missing required comment field (id)' });
-    } else if (!text) {
-      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
+      return true;
+    }
+    if (!text) {
+      console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:',
         'missing text field. Received data:', JSON.stringify(message.data));
       sendResponse({ success: false, error: 'Missing required comment field (text)' });
-    } else {
-      // Normalize author for logging; empty is valid.
-      const logAuthor = author || 'unknown';
-      const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
-      console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
-        `id=${id}, author=${logAuthor}, text="${textPreview}"`);
-
-      // ── Phase 9.x: Build fingerprint and check handled store ───────────────
-      const comment = message.data?.comment;
-      const pageInfo = {
-        site: PLATFORM_SITE,
-        url: sender.tab?.url,   // undefined if sender.tab is absent (e.g. extension page)
-      };
-      const fingerprint = createFingerprint(comment, pageInfo);
-
-      if (await isHandled(fingerprint)) {
-        console.log(`[YouTube Auto Reply] COMMENT_DETECTED: SKIPPED_ALREADY_HANDLED - fp=${fingerprint}`);
-        sendResponse({ success: true, id, result: 'SKIPPED_ALREADY_HANDLED' });
-        return true;
-      }
-
-      // Fetch trigger rules and perform matching
-      let verdict = { success: true, id };
-      try {
-        const triggers = await getTriggers();
-        
-        // Filter to only enabled rules with non-empty phrases arrays
-        const activeRules = triggers.filter(rule => rule.enabled && Array.isArray(rule.phrases) && rule.phrases.length > 0);
-        
-        if (activeRules.length === 0) {
-          console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no enabled rules');
-          verdict.result = 'NO_MATCH';
-        } else {
-          // Iterate through active rules; first match wins
-          for (const rule of activeRules) {
-            let matchedResult;
-            
-            if (rule.matchMode === 'contains') {
-              matchedResult = containsMatch(text, rule.phrases, rule.caseSensitive);
-            } else if (rule.matchMode === 'exact') {
-              matchedResult = exactMatch(text, rule.phrases, rule.caseSensitive);
-            } else {
-              // Unknown match mode - skip this rule
-              console.warn(`[YouTube Auto Reply] COMMENT_DETECTED: skipping rule ${rule.id} with unknown matchMode "${rule.matchMode}"`);
-              continue;
-            }
-            
-            if (matchedResult.matched) {
-              const matchedPhrase = matchedResult.matchedPhrase || '';
-              console.log(`[YouTube Auto Reply] COMMENT_DETECTED: MATCH - id=${id}, result=MATCH, phrase="${matchedPhrase}"`);
-              verdict.result = 'MATCH';
-              verdict.matchedPhrase = matchedPhrase;
-              verdict.ruleId = rule.id;
-              break; // First match wins
-            }
-          }
-          
-          if (!verdict.result) {
-            console.log('[YouTube Auto Reply] COMMENT_DETECTED: NO_MATCH - no rules matched');
-            verdict.result = 'NO_MATCH';
-          }
-        }
-      } catch (error) {
-        console.error('[YouTube Auto Reply] COMMENT_DETECTED error:', error.message);
-        sendResponse({ success: false, error: `Matching failed: ${error.message}` });
-        return true; // Keep channel open for sendResponse
-      }
-      
-      // Only attempt generation when verdict.result === 'MATCH'
-      if (verdict.result === 'MATCH') {
-        let settings;
-        let messages;
-        try {
-          settings = await getSettings();
-          messages = buildReplyPrompt({ text }, settings);
-        } catch (error) {
-          console.error('[YouTube Auto Reply] COMMENT_DETECTED: Prompt build failed:', error.message);
-          sendResponse({ success: false, error: `Prompt build failed: ${error.message}` });
-          return true; // Keep channel open for sendResponse
-        }
-
-        try {
-          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation attempted for comment id=${verdict.id}`);
-          const result = await chatCompletion(messages);
-
-          // Log outcome AFTER the call resolves
-          const replyText = result.text || '';
-          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${replyText.length}, preview="${(replyText || '').substring(0, 100)}..."`);
-          verdict.reply = replyText;
-
-          // ── Two independent decisions, deliberately decoupled ───────────────
-          // 1. In-session reply deduplication (replyDedup): may suppress
-          //    near-identical replies across different comments in the same cycle.
-          // 2. Persistent marking (markHandled): records that THIS comment was
-          //    handled so it won't be replayed after a service-worker restart.
-          // The persistent store must NOT depend on reply similarity — two
-          // different comments should both be recorded even if their replies
-          // are near-duplicates (Rule 4 of the deduplicator). See bug #2.
-
-          // Decision A: in-session reply deduplication verdict.
-          const isReplyDuplicate = replyDedup.isDuplicate({
-            reply: replyText,
-            commentId: verdict.id,
-          });
-          if (isReplyDuplicate) {
-            console.log(
-              `[YouTube Auto Reply] COMMENT_DETECTED: in-session duplicate suppressed - fp=${fingerprint}`
-            );
-          }
-
-          // Decision B: persistent marking — independent of reply similarity.
-          // Only mark when generation succeeded, the reply is non-empty,
-          // and dry-run is disabled. An empty reply is not a real reply;
-          // persisting it would silently lose the comment.
-          if (replyText && !settings.dryRun) {
-            await markHandled(fingerprint);
-          }
-        } catch (error) {
-          console.error('[YouTube Auto Reply] COMMENT_DETECTED: Generation failed:', error.message);
-          sendResponse({ success: false, error: `Generation failed: ${error.message}` });
-          return true; // Keep channel open for sendResponse
-        }
-      }
-      
-      sendResponse(verdict);
+      return true;
     }
-    return true; // Keep channel open for sendResponse
+
+    // Normalize author for logging; empty is valid.
+    const logAuthor = author || 'unknown';
+    const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+    console.log('[YouTube Auto Reply] COMMENT_DETECTED received:',
+      `id=${id}, author=${logAuthor}, text="${textPreview}"`);
+
+    // Capture everything SYNCHRONOUSLY — sender.tab.url may be invalid after await.
+    const comment = message.data?.comment;
+    const pageInfo = {
+      site: PLATFORM_SITE,
+      url: sender.tab?.url,
+    };
+    const fingerprint = createFingerprint(comment, pageInfo);
+
+    // Enqueue the job and start (or keep) the worker.
+    // Only `id` is required (dedup key); `text` validated in parseComment; `author` may be empty.
+    let _responded = false;
+    const respondOnce = (response) => {
+      if (!_responded) {
+        _responded = true;
+        sendResponse(response);
+      }
+    };
+    const job = { id, text, fingerprint, respondOnce };
+    jobQueue.enqueue(job);
+    ensureWorkerRunning();
+    return true;
   }
 
   // Default response for unknown message types
