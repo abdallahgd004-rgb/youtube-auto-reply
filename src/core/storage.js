@@ -54,6 +54,7 @@ async function getSettings() {
     // Read from chrome.storage.local - may return partial or empty object
     const result = await chrome.storage.local.get([
       'enabled',
+      'dryRun',
       'lmStudio',
       'triggers',
       'replyBehavior'

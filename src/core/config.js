@@ -9,6 +9,10 @@ const DEFAULT_CONFIG = {
   // Extension state
   enabled: false,
 
+  // Phase 8 safety gate. When true, the extension prepares replies but NEVER clicks
+  // submit. Defaults to true so nothing is ever posted to a real account by accident.
+  dryRun: true,
+
   // LM Studio API configuration
   lmStudio: {
     baseUrl: "http://localhost:1234/v1",
