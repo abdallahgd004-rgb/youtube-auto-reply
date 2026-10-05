@@ -86,19 +86,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const { id, author, text } = message.data || {};
     
     // Defensive: guard against missing/malformed payload
-    if (!id || !author) {
+    // Only `id` is required (dedup key); `text` validated in parseComment; `author` may be empty.
+    if (!id) {
       console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
-        'missing required fields (id or author). Received data:', JSON.stringify(message.data));
-      sendResponse({ success: false, error: 'Missing required comment fields (id/author)' });
+        'missing id field. Received data:', JSON.stringify(message.data));
+      sendResponse({ success: false, error: 'Missing required comment field (id)' });
     } else if (!text) {
       console.error('[YouTube Auto Reply] COMMENT_DETECTED received invalid payload:', 
         'missing text field. Received data:', JSON.stringify(message.data));
       sendResponse({ success: false, error: 'Missing required comment field (text)' });
     } else {
-      // Log receipt with truncated text preview
+      // Normalize author for logging; empty is valid.
+      const logAuthor = author || 'unknown';
       const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
       console.log('[YouTube Auto Reply] COMMENT_DETECTED received:', 
-        `id=${id}, author=${author}, text="${textPreview}"`);
+        `id=${id}, author=${logAuthor}, text="${textPreview}"`);
       sendResponse({ success: true, received: true });
     }
     return true; // Keep channel open for sendResponse
