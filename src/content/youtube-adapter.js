@@ -229,27 +229,135 @@ class YouTubeSiteAdapter {
 
   /**
    * Set the reply text in the reply box.
-   * 
-   * @param {HTMLElement} replyBox - The reply input element
-   * @param {string} text - Text to insert into the reply box
-   * @returns {boolean|null} True if successful, or null (Phase 8 not implemented)
+   *
+   * YouTube's editor is a contenteditable / yt-formatted-string — setting .value
+   * does nothing. We must focus, clear, insert via execCommand (which fires the
+   * input/change events React listens to), and fall back to direct DOM + manual
+   * event dispatch if execCommand is unavailable.
+   *
+   * @param {HTMLElement} replyBox - The reply editor element
+   * @param {string} text  - Text to insert
+   * @returns {boolean} True on success, false on failure (never throws)
    */
   setReplyText(replyBox, text) {
-    // Phase 8: Reply UI automation is out of scope for this phase.
-    console.log('[YouTube Auto Reply] setReplyText: Not implemented until Phase 8');
-    return null;
+    if (!replyBox || typeof text !== 'string') {
+      console.log('[YouTube Auto Reply] setReplyText: invalid arguments');
+      return false;
+    }
+
+    try {
+      // Focus the editor so YouTube's React layer knows it is active.
+      replyBox.focus();
+
+      // Clear any existing content.
+      replyBox.textContent = '';
+
+      // Preferred path: document.execCommand('insertText') fires the native
+      // input / composition events that React actually listens to.
+      if (typeof document.execCommand === 'function') {
+        const ok = document.execCommand('insertText', false, text);
+        if (ok) return true;
+        // execCommand returned false — fall through to manual fallback.
+      }
+
+      // Fallback: set textContent and manually dispatch the events React expects.
+      replyBox.textContent = text;
+
+      const inputEvent  = new Event('input',  { bubbles: true });
+      const changeEvent = new Event('change', { bubbles: true });
+      replyBox.dispatchEvent(inputEvent);
+      replyBox.dispatchEvent(changeEvent);
+    } catch (err) {
+      console.warn('[YouTube Auto Reply] setReplyText failed:', err.message);
+      return false;
+    }
+
+    return true;
   }
 
   /**
    * Submit the reply from the reply box.
-   * 
-   * @param {HTMLElement} replyBox - The reply input element
-   * @returns {boolean|null} True if submission was successful, or null (Phase 8 not implemented)
+   *
+   * HARD REQUIREMENT: if dryRun is true (the default), this method MUST NOT click
+   * anything. It logs what it would have submitted and returns false.
+   *
+   * Reads dryRun directly from chrome.storage.local with a fallback of true so that
+   * any storage error defaults to the safe direction — never post without explicit
+   * user consent.
+   *
+   * @param {HTMLElement} replyBox - The reply editor element (used only for logging)
+   * @returns {Promise<boolean>} True if submitted, false otherwise (never throws)
    */
-  submitReply(replyBox) {
-    // Phase 8: Reply UI automation is out of scope for this phase.
-    console.log('[YouTube Auto Reply] submitReply: Not implemented until Phase 8');
-    return null;
+  async submitReply(replyBox) {
+    // --- dry-run gate ----------------------------------------------------------
+    let dryRun = true; // fail-safe: unreadable setting → do not post
+
+    try {
+      const result = await chrome.storage.local.get(['dryRun']);
+      if (result && typeof result.dryRun === 'boolean') {
+        dryRun = result.dryRun;
+      }
+    } catch (_) {
+      // Storage error or rejection → keep dryRun = true. Nothing is posted.
+      console.warn('[YouTube Auto Reply] submitReply: could not read dryRun setting, defaulting to dry-run');
+    }
+
+    if (dryRun) {
+      const textContent = replyBox ? replyBox.textContent : null;
+      if (textContent && textContent.trim()) {
+        console.info(
+          '[YouTube Auto Reply] submitReply: dry-run mode — would have submitted '
+            + '"' + textContent.trim().substring(0, 80) + '"'
+            + '; click count stays at 0'
+        );
+      } else {
+        console.warn(
+          '[YouTube Auto Reply] submitReply: DRY-RUN — reply box appears empty; '
+            + 'posting an empty reply would be a bug'
+        );
+      }
+      return false;
+    }
+
+    // --- find the Submit button (multi-fallback, same style as existing code) --
+    let submitBtn = null;
+
+    try {
+      submitBtn = replyBox.querySelector('button[aria-label*="Comment"]');
+    } catch (_) {}
+    if (!submitBtn) {
+      try {
+        submitBtn = replyBox.querySelector('#submit-button');
+      } catch (_) {}
+    }
+    if (!submitBtn) {
+      try {
+        // Last resort: any button whose aria-label or textContent contains "send" / "post"
+        const buttons = replyBox.querySelectorAll('button');
+        for (const b of buttons) {
+          const label = (b.getAttribute('aria-label') || '').toLowerCase();
+          const text  = (b.textContent || '').toLowerCase();
+          if (label.includes('send') || label.includes('post') ||
+              text.includes('send') || text.includes('post')) {
+            submitBtn = b;
+            break;
+          }
+        }
+      } catch (_) {}
+    }
+
+    if (!submitBtn) {
+      console.log('[YouTube Auto Reply] submitReply: no submit button found');
+      return false;
+    }
+
+    try {
+      submitBtn.click();
+      return true;
+    } catch (err) {
+      console.warn('[YouTube Auto Reply] submitReply: click failed:', err.message);
+      return false;
+    }
   }
 }
 
