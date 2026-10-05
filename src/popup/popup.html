@@ -8,9 +8,12 @@
 </head>
 <body>
   <div class="container">
-    <h1>YouTube Auto Reply</h1>
-    <p>Status: Extension loaded</p>
+    <h1>LM Studio Comment Replier</h1>
+    <div id="status-display">Status: OFF</div>
+    <button id="toggle-btn">ON</button>
+    <div id="error-message" class="error-message" style="display: none;"></div>
+    <button id="settings-btn" style="margin-top: 8px;">Settings</button>
   </div>
-  <script src="popup.js"></script>
+  <script type="module" src="popup.js"></script>
 </body>
 </html>

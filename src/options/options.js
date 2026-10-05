@@ -148,7 +148,7 @@ async function testConnection() {
     if (response.success) {
       // Success - show result in dedicated element
       resultEl.textContent = `✓ Connection successful! Model: ${escapeHtml(response.model || 'unknown')}`;
-      resultEl.className = '#connection-result success visible';
+      resultEl.className = 'success visible'
       
       // Also show a brief success message
       showMessage('Connection test passed', 'success');
@@ -160,13 +160,54 @@ async function testConnection() {
     
     // Show error in dedicated element
     resultEl.textContent = `✗ ${escapeHtml(error.message)}`;
-    resultEl.className = '#connection-result error visible';
+    resultEl.className = 'error visible'
     
     showMessage('Connection test failed', 'error');
   } finally {
     // Re-enable button
     testBtn.disabled = false;
     testBtn.textContent = 'Test LM Studio Connection';
+  }
+}
+
+/**
+ * Test chat completion with a simple prompt.
+ */
+async function testChatCompletion() {
+  const chatBtn = document.getElementById('test-chat-completion-btn');
+  const chatResultEl = document.getElementById('chat-result');
+  
+  // Disable button during test
+  chatBtn.disabled = true;
+  chatBtn.textContent = 'Testing...';
+  hideChatMessage();
+  clearChatError();
+  
+  try {
+    // Send request to background service worker for chat completion test
+    const response = await chrome.runtime.sendMessage({ action: 'TEST_CHAT_COMPLETION' });
+    
+    if (response.success) {
+      // Success - show full response text
+      let displayText = response.text;
+      if (displayText.length > 300) {
+        displayText = displayText.substring(0, 300).trim() + '...';
+      }
+      chatResultEl.textContent = `✓ Response:\n${escapeHtml(displayText)}`;
+      chatResultEl.className = 'message visible success';
+    } else {
+      throw new Error(response.error || 'Chat completion test failed');
+    }
+  } catch (error) {
+    console.error('[YouTube Auto Reply] Chat completion test error:', error.message);
+    
+    // Show error
+    chatResultEl.textContent = `✗ ${escapeHtml(error.message)}`;
+    chatResultEl.className = 'message visible error';
+  } finally {
+    // Re-enable button
+    chatBtn.disabled = false;
+    chatBtn.textContent = 'Test Chat Completion';
   }
 }
 
@@ -211,7 +252,7 @@ function clearModelError() {
  */
 function clearResult() {
   const resultEl = document.getElementById('connection-result');
-  resultEl.className = '#connection-result hidden';
+  resultEl.className = 'hidden'
 }
 
 /**
@@ -276,6 +317,27 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+/**
+ * Hide any displayed chat message.
+ */
+function hideChatMessage() {
+  const chatResultEl = document.getElementById('chat-result');
+  if (chatResultEl) {
+    chatResultEl.classList.remove('visible', 'success', 'error');
+    chatResultEl.style.display = 'none';
+  }
+}
+
+/**
+ * Clear any displayed chat error.
+ */
+function clearChatError() {
+  const chatResultEl = document.getElementById('chat-result');
+  if (chatResultEl) {
+    chatResultEl.classList.remove('error');
+  }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
   console.log('[YouTube Auto Reply] Settings page ready');
@@ -293,5 +355,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const testBtn = document.getElementById('test-connection-btn');
   if (testBtn) {
     testBtn.addEventListener('click', testConnection);
+  }
+  
+  // Attach chat completion test button handler
+  const chatBtn = document.getElementById('test-chat-completion-btn');
+  if (chatBtn) {
+    chatBtn.addEventListener('click', testChatCompletion);
   }
 });

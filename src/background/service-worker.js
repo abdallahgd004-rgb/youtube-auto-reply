@@ -54,6 +54,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep channel open for sendResponse
   }
 
+  if (message.action === 'TEST_CHAT_COMPLETION') {
+    // Non-destructive test that returns full chat completion response
+    const messages = [
+      { role: 'user', content: 'Say hello' }
+    ];
+    
+    chatCompletion(messages)
+      .then(result => {
+        sendResponse({ success: true, text: result.text });
+        return true; // Keep channel open for sendResponse
+      })
+      .catch(error => {
+        console.error('[YouTube Auto Reply] Chat completion test error:', error.message);
+        sendResponse({ success: false, error: error.message });
+        return true; // Keep channel open for sendResponse
+      });
+    return true; // Keep channel open for sendResponse
+  }
+
   // Default response for unknown message types
   sendResponse({ status: 'ok' });
   return true;
