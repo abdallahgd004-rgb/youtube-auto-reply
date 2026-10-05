@@ -19,7 +19,8 @@ const DEFAULT_CONFIG = {
     // With 150, every reply is empty because the model exhausts its budget reasoning before generating content.
     // Based on measurements: ~628 tokens for reasoning + headroom for actual response = need ~700+ total.
     maxTokens: 1500,
-    systemPrompt: ""
+    systemPrompt:
+      "أنت مساعد ذكي ترد على تعليقات اليوتيوب باللغة العربية الفصحى. اكتب ردك بالعربية دائماً بغض النظر عن لغة التعليق. أجب في جملة واحدة إلى ثلاث جمل قصيرة فقط — هذا تعليق يوتيوب وليس مقالاً. لا تستخدم أبداً التنسيق Markdown أو النقاط أو العناوين أو علامات السطر أو الإيموجي. لا تخترع معلومات؛ إذا لم تكن المعلومة متوفرة في الفيديو، قل بوضوح أن الإجابة غير متوفرة في الفيديو وادعُ صاحب التعليق لطرح سؤال آخر. كن مهذباً ومختصراً."
   },
 
   // Trigger keywords/phrases that will activate the auto-reply
