@@ -1,0 +1,166 @@
+/**
+ * Trigger CRUD Module - YouTube Auto Reply Extension
+ * 
+ * Core module for managing trigger rules (Add, Update, Delete).
+ * Uses the existing storage layer (getSettings/saveSettings) for persistence.
+ */
+
+import { getSettings, saveSettings } from './storage.js';
+
+/**
+ * Generate a unique ID for a new trigger rule.
+ * 
+ * @returns {string} A unique identifier string
+ */
+function generateId() {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 7);
+  return `rule-${timestamp}-${random}`;
+}
+
+/**
+ * Add a new trigger rule.
+ * 
+ * Creates/stores a Trigger Rule in settings.triggers.
+ * Generates a unique id if not provided by the caller.
+ * Preserves the existing Trigger Rule structure.
+ * Saves the updated settings using saveSettings().
+ * 
+ * @param {Object} trigger - The trigger rule to add (must have phrases array)
+ * @returns {Promise<Object>} The saved trigger rule with generated/confirmed id
+ * @throws {Error} If trigger object is invalid or missing required fields
+ */
+async function addTrigger(trigger) {
+  // Validate input
+  if (!trigger || typeof trigger !== 'object') {
+    throw new Error('Invalid trigger: must be a non-null object');
+  }
+
+  if (!Array.isArray(trigger.phrases) || trigger.phrases.length === 0) {
+    throw new Error('Invalid trigger: phrases must be a non-empty array');
+  }
+
+  // Generate unique ID if not provided
+  const id = trigger.id || generateId();
+
+  // Create the complete rule object with defaults for missing fields
+  const rule = {
+    id,
+    enabled: trigger.enabled !== undefined ? trigger.enabled : true,
+    phrases: [...trigger.phrases], // Copy array to avoid reference issues
+    matchMode: trigger.matchMode || 'contains',
+    caseSensitive: trigger.caseSensitive ?? false
+  };
+
+  // Get current settings and add the new rule
+  const settings = await getSettings();
+  
+  if (!settings.triggers) {
+    settings.triggers = [];
+  }
+  
+  // Add to triggers array (avoid duplicates by id)
+  const existingIndex = settings.triggers.findIndex(r => r.id === id);
+  if (existingIndex >= 0) {
+    throw new Error(`Trigger with id "${id}" already exists`);
+  }
+  
+  settings.triggers.push(rule);
+
+  // Save updated settings
+  await saveSettings(settings);
+
+  return rule;
+}
+
+/**
+ * Update an existing trigger rule.
+ * 
+ * Finds the trigger by id and updates only the provided fields.
+ * Preserves all fields that were not included in the update.
+ * Saves the updated settings using saveSettings().
+ * 
+ * @param {string} triggerId - The unique identifier of the trigger to update
+ * @param {Object} updates - Partial object with fields to update (must include phrases)
+ * @returns {Promise<Object>} The updated trigger rule
+ * @throws {Error} If trigger not found or invalid updates provided
+ */
+async function updateTrigger(triggerId, updates) {
+  // Validate triggerId
+  if (!triggerId || typeof triggerId !== 'string') {
+    throw new Error('Invalid triggerId: must be a non-empty string');
+  }
+
+  // Get current settings
+  const settings = await getSettings();
+
+  // Find the trigger by id
+  const index = settings.triggers.findIndex(r => r.id === triggerId);
+  
+  if (index < 0) {
+    throw new Error(`Trigger with id "${triggerId}" not found`);
+  }
+
+  // Create updated rule, preserving existing fields and merging updates
+  const originalRule = settings.triggers[index];
+  const updatedRule = {
+    id: originalRule.id,
+    enabled: updates.enabled !== undefined ? updates.enabled : originalRule.enabled,
+    phrases: updates.phrases !== undefined ? [...updates.phrases] : [...originalRule.phrases], // Preserve existing if not provided
+    matchMode: updates.matchMode !== undefined ? updates.matchMode : originalRule.matchMode,
+    caseSensitive: updates.caseSensitive ?? originalRule.caseSensitive
+  };
+
+  // Replace in the triggers array
+  settings.triggers[index] = updatedRule;
+
+  // Save updated settings
+  await saveSettings(settings);
+
+  return updatedRule;
+}
+
+/**
+ * Delete an existing trigger rule.
+ * 
+ * Finds and removes the trigger by id from settings.triggers.
+ * Saves the updated settings using saveSettings().
+ * 
+ * @param {string} triggerId - The unique identifier of the trigger to delete
+ * @returns {Promise<void>} Resolves when deletion completes
+ * @throws {Error} If trigger not found
+ */
+async function deleteTrigger(triggerId) {
+  // Validate triggerId
+  if (!triggerId || typeof triggerId !== 'string') {
+    throw new Error('Invalid triggerId: must be a non-empty string');
+  }
+
+  // Get current settings
+  const settings = await getSettings();
+
+  // Find the trigger by id
+  const index = settings.triggers.findIndex(r => r.id === triggerId);
+  
+  if (index < 0) {
+    throw new Error(`Trigger with id "${triggerId}" not found`);
+  }
+
+  // Remove from triggers array
+  settings.triggers.splice(index, 1);
+
+  // Save updated settings
+  await saveSettings(settings);
+}
+
+/**
+ * Get all trigger rules (for reference).
+ * 
+ * @returns {Promise<Object[]>} Array of all trigger rules from settings.triggers
+ */
+async function getTriggers() {
+  const settings = await getSettings();
+  return settings.triggers || [];
+}
+
+export { addTrigger, updateTrigger, deleteTrigger, getTriggers };

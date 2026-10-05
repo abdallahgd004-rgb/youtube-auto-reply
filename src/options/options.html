@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Auto Reply Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <h1>YouTube Auto Reply Settings</h1>
+    
+    <form id="settings-form">
+      <div class="setting-group">
+        <label for="baseUrl">Base URL</label>
+        <input type="text" id="baseUrl" name="baseUrl" placeholder="http://localhost:1234/v1">
+      </div>
+
+      <div class="setting-group">
+        <label for="model">Model</label>
+        <select id="model" name="model">
+          <option value="">Select a model</option>
+        </select>
+      </div>
+
+      <button type="submit" id="save-btn">Save</button>
+    </form>
+
+    <div class="setting-group" style="margin-top: 16px;">
+      <label for="test-connection">Test Connection</label>
+      <button id="test-connection-btn">Test LM Studio Connection</button>
+    </div>
+
+    <div id="message" class="message"></div>
+    
+    <div id="model-error" class="error-message" style="display: none;"></div>
+    
+    <!-- Trigger List Section -->
+    <div class="setting-group" style="margin-top: 24px; text-align: left;">
+      <h2 style="font-size: 18px; margin: 0 0 12px 0;">Triggers</h2>
+      <div id="triggers-list"></div>
+    </div>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
