@@ -7,6 +7,8 @@ import { getModels, chatCompletion } from './api-client.js';
 import { getTriggers } from '../core/trigger-crud.js';
 import { match as containsMatch } from '../core/matchers/contains-matcher.js';
 import { match as exactMatch } from '../core/matchers/exact-matcher.js';
+import { buildReplyPrompt } from '../core/prompt-builder.js';
+import { getSettings } from '../core/storage.js';
 
 // Single consolidated message handler for all message types
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
@@ -150,6 +152,32 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         console.error('[YouTube Auto Reply] COMMENT_DETECTED error:', error.message);
         sendResponse({ success: false, error: `Matching failed: ${error.message}` });
         return true; // Keep channel open for sendResponse
+      }
+      
+      // Only attempt generation when verdict.result === 'MATCH'
+      if (verdict.result === 'MATCH') {
+        try {
+          const settings = await getSettings();
+          const messages = buildReplyPrompt({ text }, settings);
+        } catch (error) {
+          console.error('[YouTube Auto Reply] COMMENT_DETECTED: Prompt build failed:', error.message);
+          sendResponse({ success: false, error: `Prompt build failed: ${error.message}` });
+          return true; // Keep channel open for sendResponse
+        }
+
+        try {
+          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation attempted for comment id=${verdict.id}`);
+          const result = await chatCompletion(messages);
+          
+          // Log outcome AFTER the call resolves
+          const text = result.text || '';
+          console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${text.length}, preview="${(text || '').substring(0, 100)}..."`);
+          verdict.reply = text;
+        } catch (error) {
+          console.error('[YouTube Auto Reply] COMMENT_DETECTED: Generation failed:', error.message);
+          sendResponse({ success: false, error: `Generation failed: ${error.message}` });
+          return true; // Keep channel open for sendResponse
+        }
       }
       
       sendResponse(verdict);
