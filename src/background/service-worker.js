@@ -341,8 +341,9 @@ async function processJob(job) {
   job.respondOnce(verdict);
 }
 
-// Single consolidated message handler for all message types
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+// Message handler. Deliberately NOT the listener itself — see the
+// chrome.runtime.onMessage.addListener call at the bottom of this file for why.
+async function handleMessage(message, sender, sendResponse) {
   if (message.action === 'openPopup') {
     chrome.tabs.create({ url: 'popup/popup.html' });
     return true; // Keep channel open for sendResponse
@@ -496,6 +497,36 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
   // Default response for unknown message types
   sendResponse({ status: 'ok' });
   return true;
+}
+
+// Single consolidated message listener for all message types.
+//
+// CRITICAL: this listener must NOT be declared `async`.
+//
+// An async listener returns a Promise, and Chrome resolves that Promise and uses the
+// resolved value as the response, then closes the message channel. The handler body
+// ends with `return true` to keep the channel open for a later sendResponse, so an
+// async listener resolves to `true`: Chrome would deliver the boolean `true` as the
+// response and discard every real sendResponse() payload.
+//
+// The symptom was the options page showing "Unable to load models" with the message
+// "Failed to load models" — the generic fallback used when `response.error` is empty.
+// Chrome had actually delivered `true`, where `response.success` is undefined. The
+// fetch never even ran.
+//
+// So the listener stays synchronous, delegates to the async handleMessage above, and
+// returns true itself. That is the documented way to keep a channel open for an async
+// response, and it works on every Chrome version.
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleMessage(message, sender, sendResponse).catch((error) => {
+    console.error('[YouTube Auto Reply] Unhandled message error:', error.message);
+    try {
+      sendResponse({ success: false, error: `Unhandled error: ${error.message}` });
+    } catch (_) {
+      // Channel already closed; nothing further to do.
+    }
+  });
+  return true; // Keep channel open for sendResponse
 });
 
 // Log startup message for verification
