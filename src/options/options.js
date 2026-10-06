@@ -6,6 +6,21 @@ import { getTriggers } from '../core/trigger-crud.js';
 
 console.log('[YouTube Auto Reply] Options page loaded');
 
+/**
+ * Normalize a Base URL for LM Studio.
+ *
+ * Strips trailing slashes and appends `/v1` when the user omitted it, since
+ * api-client builds `${baseUrl}/models`, so the OpenAI-compatible prefix must be
+ * part of the saved value. Returns '' for empty input so callers can detect it.
+ */
+function normalizeBaseUrl(raw) {
+  const trimmed = (raw || '').trim();
+  if (!trimmed) return '';
+  const withoutSlash = trimmed.replace(/\/+$/, '');
+  if (/\/v\d+$/.test(withoutSlash)) return withoutSlash;
+  return withoutSlash + '/v1';
+}
+
 let currentSettings = null;
 let savedModelValue = ''; // Preserve the saved model value even if unavailable
 
@@ -86,7 +101,10 @@ async function loadModels() {
     
     // Show error state but keep the form usable
     modelSelect.innerHTML = '<option value="">Unable to load models</option>';
-    showModelError(error.message);
+    showModelError(
+      `${error.message} — check that LM Studio is running, and that the Base URL is reachable ` +
+      `and permitted in the extension's host permissions.`
+    );
   }
 }
 
@@ -99,7 +117,7 @@ async function handleSave(event) {
   const baseUrlInput = document.getElementById('baseUrl');
   const modelSelect = document.getElementById('model');
   
-  const baseUrl = baseUrlInput.value.trim();
+  const baseUrl = normalizeBaseUrl(baseUrlInput.value);
   
   // Get selected model value (preserves saved model even if unavailable)
   const model = modelSelect.value;
