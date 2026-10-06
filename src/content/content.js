@@ -39,23 +39,99 @@ let pendingNodes = [];      // Queue of element nodes to process after debounce
 let throttleTimer = null;   // Holds the pending timer (null when no timer armed)
 let seenIds = new Set();    // Shared dedup set for both page-load and mutation paths
 
+// ── TEMPORARY DIAGNOSTIC INSTRUMENTATION ─────────────────────────────────────
+// Added to find out why the MutationObserver path does not detect comments that
+// findCommentNodes() can see. Purely additive counters and logging; no detection
+// behaviour is changed and no timers, polling or retries are introduced. Remove
+// once the cause is identified.
+const diag = {
+  mutationRecords: 0,   // Q1: did the observer callback fire at all?
+  addedNodes: 0,        // Q2: how many addedNodes arrived in total?
+  elementNodes: 0,      // addedNodes that were usable elements
+  skippedNonElement: 0, // addedNodes dropped by the nodeType guard
+  flushes: 0,           // times the throttled batch actually ran
+  nodesProcessed: 0,    // nodes examined in processBatch
+  selfMatches: 0,       // nodes that were themselves a comment
+  descendantThreads: 0, // comment threads found as descendants
+  descendantRenderers: 0,
+  parsedOk: 0,          // successfully parsed
+  parseFailed: 0,       // parseComment returned null
+  alreadySeen: 0,       // rejected because seenIds already had the id
+  sampleShown: 0
+};
+
+/** Minimal node description for diagnostic output only. */
+function diagDescribe(node) {
+  if (!node) return 'null';
+  let out = node.tagName ? node.tagName.toLowerCase() : 'unknown';
+  try {
+    if (node.id) out += '#' + node.id;
+    const cls = typeof node.className === 'string'
+      ? node.className.trim().split(/\s+/).filter(Boolean).slice(0, 3)
+      : [];
+    if (cls.length) out += '.' + cls.join('.');
+  } catch (_) { /* ignore */ }
+  return out;
+}
+
 /**
  * Process a batch of comment nodes.
  * @param {Array} nodes - Array of HTMLElement nodes to check for comments
  */
 function processBatch(nodes) {
   const adapter = new SiteAdapter();
-  
+  diag.flushes++;
+  diag.nodesProcessed += nodes.length;
+
+  // Q3/Q4: processBatch does NOT call findCommentNodes() today; it queries each
+  // inserted node. So sample the live page to compare the two views.
+  // Sampled rather than every flush, because it scans the whole document.
+  if (diag.flushes <= 3 || diag.flushes % 25 === 0) {
+    let liveCount = -1;
+    let liveSample = '';
+    try {
+      const live = adapter.findCommentNodes();
+      liveCount = live.length;
+      if (live.length) liveSample = diagDescribe(live[0]);
+    } catch (err) {
+      liveSample = 'error: ' + err.message;
+    }
+    console.log(
+      `[YouTube Auto Reply] DIAG flush#${diag.flushes}: batchSize=${nodes.length} ` +
+      `findCommentNodes() now returns ${liveCount} ${liveSample}`
+    );
+  }
+
   for (const node of nodes) {
     // Only treat the node itself as a comment if it IS one. The observer also hands
     // us large containers; parseComment() on a container would return the first
     // comment inside it under a fabricated fallback id, creating a bogus comment and
     // burning a seenIds entry for it.
     if (adapter.isCommentNode(node)) {
+      diag.selfMatches++;
       const parsedComment = adapter.parseComment(node);
+
+      if (!parsedComment) {
+        // Q5: rejected because parsing produced no usable comment.
+        diag.parseFailed++;
+        console.log(`[YouTube Auto Reply] DIAG parse failed for ${diagDescribe(node)}`);
+      } else if (seenIds.has(parsedComment.id)) {
+        // Q5: rejected because this comment was already recorded.
+        diag.alreadySeen++;
+      }
 
       if (parsedComment && !seenIds.has(parsedComment.id)) {
         seenIds.add(parsedComment.id);
+        diag.parsedOk++;
+
+        // Q6: log the parsed id/text immediately before the existing flow.
+        if (diag.sampleShown < 5) {
+          diag.sampleShown++;
+          console.log(
+            `[YouTube Auto Reply] DIAG parsed: id=${parsedComment.id} ` +
+            `author=${parsedComment.author} text="${parsedComment.text.substring(0, 60)}"`
+          );
+        }
 
         console.log('[YouTube Auto Reply] New comment detected:', parsedComment.text.substring(0, 50) + '...');
 
@@ -71,11 +147,24 @@ function processBatch(nodes) {
     // querySelectorAll matches all descendants, not just direct children, so a
     // comment rendered several levels below the inserted node is still found.
     const childComments = node.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD);
+    diag.descendantThreads += childComments.length;
     if (childComments.length > 0) {
       childComments.forEach(function(commentNode) {
         let pc = adapter.parseComment(commentNode);
-        if (pc && !seenIds.has(pc.id)) {
+        if (!pc) {
+          diag.parseFailed++;
+        } else if (seenIds.has(pc.id)) {
+          diag.alreadySeen++;
+        } else {
           seenIds.add(pc.id);
+          diag.parsedOk++;
+          if (diag.sampleShown < 5) {
+            diag.sampleShown++;
+            console.log(
+              `[YouTube Auto Reply] DIAG parsed (descendant): id=${pc.id} ` +
+              `author=${pc.author} text="${pc.text.substring(0, 60)}"`
+            );
+          }
 
           console.log('[YouTube Auto Reply] New comment detected:', pc.text.substring(0, 50) + '...');
 
@@ -91,16 +180,30 @@ function processBatch(nodes) {
     const innerComments = node.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_RENDERER);
     innerComments.forEach(function(commentNode) {
       // Skip renderers already covered as descendants of a matched thread.
+      diag.descendantRenderers++;
       if (commentNode.closest && commentNode.closest(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD)) return;
       const pc = adapter.parseComment(commentNode);
-      if (pc && !seenIds.has(pc.id)) {
+      if (!pc) {
+        diag.parseFailed++;
+      } else if (seenIds.has(pc.id)) {
+        diag.alreadySeen++;
+      } else {
         seenIds.add(pc.id);
+        diag.parsedOk++;
         console.log('[YouTube Auto Reply] New comment detected (renderer):', pc.text.substring(0, 50) + '...');
         sendMessage('COMMENT_DETECTED', { comment: pc }).catch(function (err) {
           console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + pc.id + ': ' + err.message);
         });
       }
     });
+
+  // Running totals, so a single line answers how far the observer path got.
+  console.log(
+    `[YouTube Auto Reply] DIAG totals: flushes=${diag.flushes} nodesProcessed=${diag.nodesProcessed} ` +
+    `selfMatches=${diag.selfMatches} descThreads=${diag.descendantThreads} ` +
+    `descRenderers=${diag.descendantRenderers} parsedOk=${diag.parsedOk} ` +
+    `parseFailed=${diag.parseFailed} alreadySeen=${diag.alreadySeen} seenIdsSize=${seenIds.size}`
+  );
   }
 }
 
@@ -140,16 +243,36 @@ function setupMutationObserver(enabled) {
     };
 
     const observer = new MutationObserver(function(mutations) {
+      // TEMPORARY DIAGNOSTIC: count records and addedNodes to answer Q1/Q2.
+      diag.mutationRecords += mutations.length;
+      const before = diag.addedNodes;
+
       mutations.forEach(function(mutation) {
         mutation.addedNodes.forEach(function(node) {
-          if (!node || node.nodeType !== Node.ELEMENT_NODE) return; // Skip non-element nodes early
+          diag.addedNodes++;
+          if (!node || node.nodeType !== Node.ELEMENT_NODE) {
+            // Skip non-element nodes early. Counted so we can see whether comment
+            // insertions are arriving as a DocumentFragment (nodeType 11) and being
+            // dropped here.
+            diag.skippedNonElement++;
+            return;
+          }
+          diag.elementNodes++;
 
           pendingNodes.push(node);
-          
+
           // Schedule flush after debounce window (throttles callback frequency)
           scheduleFlush();
         });
       });
+
+      if (diag.addedNodes !== before) {
+        console.log(
+          `[YouTube Auto Reply] DIAG observer: records=${diag.mutationRecords} ` +
+          `newAddedNodes=${diag.addedNodes - before} elementNodes=${diag.elementNodes} ` +
+          `skippedNonElement=${diag.skippedNonElement} pendingQueue=${pendingNodes.length}`
+        );
+      }
     });
 
     observer.observe(document.body, config);
