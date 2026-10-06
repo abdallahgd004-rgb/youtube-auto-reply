@@ -12,6 +12,7 @@ import { buildReplyPrompt } from '../core/prompt-builder.js';
 import { getSettings } from '../core/storage.js';
 import { DEFAULT_CONFIG } from '../core/config.js';
 import { isLimitReached, recordReply } from '../core/reply-rate-limiter.js';
+import { isQueuePaused, setQueuePaused } from '../core/queue-control.js';
 
 // Phase 9.x — Deduplication imports
 import { createFingerprint } from '../core/comment-fingerprint.js';
@@ -149,6 +150,14 @@ function ensureWorkerRunning() {
   (async () => {
     try {
       while (!jobQueue.isEmpty()) {
+        // ── Phase 10.6: user pause ───────────────────────────────────────
+        // Checked before dequeuing, so pausing never consumes or discards a
+        // job. We re-check once per short interval so resuming takes effect
+        // promptly without needing the service worker to be restarted.
+        if (await isQueuePaused()) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
         // ── Phase 10.5: hourly reply cap ─────────────────────────────────
         // Checked BEFORE dequeuing, so a capped job stays in the queue rather
         // than being consumed and dropped. We wait and re-check on the next
@@ -385,6 +394,35 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         return true; // Keep channel open for sendResponse
       });
     return true; // Keep channel open for sendResponse
+  }
+
+  if (message.action === 'GET_QUEUE_PAUSED') {
+    isQueuePaused()
+      .then((paused) => {
+        sendResponse({ success: true, paused });
+        return true;
+      })
+      .catch((error) => {
+        console.error('[YouTube Auto Reply] Error reading pause state:', error.message);
+        sendResponse({ success: false, error: error.message });
+        return true;
+      });
+    return true;
+  }
+
+  if (message.action === 'SET_QUEUE_PAUSED') {
+    setQueuePaused(message.paused)
+      .then((paused) => {
+        console.log(`[YouTube Auto Reply] queue pause state set to ${paused}`);
+        sendResponse({ success: true, paused });
+        return true;
+      })
+      .catch((error) => {
+        console.error('[YouTube Auto Reply] Error setting pause state:', error.message);
+        sendResponse({ success: false, error: error.message });
+        return true;
+      });
+    return true;
   }
 
   if (message.action === 'GET_ENABLED_STATE') {
