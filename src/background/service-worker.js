@@ -11,6 +11,7 @@ import { match as exactMatch } from '../core/matchers/exact-matcher.js';
 import { buildReplyPrompt } from '../core/prompt-builder.js';
 import { getSettings } from '../core/storage.js';
 import { DEFAULT_CONFIG } from '../core/config.js';
+import { isLimitReached, recordReply } from '../core/reply-rate-limiter.js';
 
 // Phase 9.x — Deduplication imports
 import { createFingerprint } from '../core/comment-fingerprint.js';
@@ -40,6 +41,7 @@ const PLATFORM_SITE = 'YouTube';
  * inputs as properties on `job` instead of reading them from closure variables.
  */
 let workerRunning = false;
+let rateLimitPaused = false; // suppress repeated pause logging across polls
 
 /**
  * Resolve the minimum inter-job delay, falling back to the configured default.
@@ -113,6 +115,29 @@ function randomDelayMs(min, max) {
 }
 
 /**
+ * Resolve the hourly reply cap, falling back to the configured default.
+ *
+ * A valid value is a positive finite number. Anything else — missing, undefined,
+ * null, NaN, Infinity, zero, negative, string, boolean — falls back to
+ * DEFAULT_CONFIG. A cap that resolved to 0 or NaN must never be treated as a real
+ * cap, because "limit reached" would then be permanently true and the extension
+ * would stop replying forever.
+ *
+ * @param {*} rawValue — the untrusted settings value
+ * @returns {number} a positive finite cap, or 0 meaning "no limit"
+ */
+function resolveMaxRepliesPerHour(rawValue) {
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue > 0) {
+    return rawValue;
+  }
+  console.warn(
+    '[YouTube Auto Reply] invalid replyBehavior.maxRepliesPerHour, using default:',
+    DEFAULT_CONFIG.replyBehavior.maxRepliesPerHour
+  );
+  return DEFAULT_CONFIG.replyBehavior.maxRepliesPerHour;
+}
+
+/**
  * Start the worker loop if it is not already running.
  *
  * The guard ensures at most one drain-loop runs at any time — jobs are
@@ -124,6 +149,27 @@ function ensureWorkerRunning() {
   (async () => {
     try {
       while (!jobQueue.isEmpty()) {
+        // ── Phase 10.5: hourly reply cap ─────────────────────────────────
+        // Checked BEFORE dequeuing, so a capped job stays in the queue rather
+        // than being consumed and dropped. We wait and re-check on the next
+        // iteration, which polls roughly once per min-delay interval and lets
+        // the rolling window expire naturally. We never sleep for the whole
+        // window, and we never drop the job.
+        const rateSettings = await getSettings();
+        const replyCap = resolveMaxRepliesPerHour(rateSettings?.replyBehavior?.maxRepliesPerHour);
+        if (replyCap > 0 && (await isLimitReached(replyCap))) {
+          if (!rateLimitPaused) {
+            console.warn('[YouTube Auto Reply] hourly reply cap reached, pausing queue');
+            rateLimitPaused = true;
+          }
+          await new Promise((resolve) => setTimeout(resolve, resolveMinDelayMs(rateSettings?.replyBehavior?.minDelayMs) || 1000));
+          continue;
+        }
+        if (rateLimitPaused) {
+          console.log('[YouTube Auto Reply] hourly reply cap cleared, queue resumed');
+          rateLimitPaused = false;
+        }
+
         const job = jobQueue.dequeue();
         try {
           await processJob(job);
@@ -258,6 +304,10 @@ async function processJob(job) {
       // persisting it would silently lose the comment.
       if (replyText && !settings.dryRun) {
         await markHandled(fingerprint);
+        // Only a genuinely posted reply counts against the hourly cap. In dry-run
+        // nothing is posted, so counting it would let test runs exhaust the cap
+        // and make the extension look rate-limited when it never actually replied.
+        await recordReply();
       }
     } catch (error) {
       console.error('[YouTube Auto Reply] COMMENT_DETECTED: Generation failed:', error.message);
