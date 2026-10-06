@@ -151,7 +151,18 @@ class YouTubeSiteAdapter {
     try {
       const frames = Array.from(document.querySelectorAll('iframe'));
       for (const frame of frames.slice(0, 8)) {
-        const entry = { src: String(frame.getAttribute('src') || '(none)').slice(0, 120) };
+        const entry = {
+          src: String(frame.getAttribute('src') || '(none)').slice(0, 120),
+          title: String(frame.getAttribute('title') || '').slice(0, 80),
+          name: String(frame.getAttribute('name') || '').slice(0, 80),
+          id: String(frame.getAttribute('id') || '').slice(0, 80),
+          size: (() => {
+            try {
+              const r = frame.getBoundingClientRect();
+              return Math.round(r.width) + 'x' + Math.round(r.height);
+            } catch (_) { return '?'; }
+          })()
+        };
         try {
           const doc = frame.contentDocument;
           if (!doc) {
@@ -165,6 +176,53 @@ class YouTubeSiteAdapter {
                 if (n) entry.selectorHits[selector] = n;
               } catch (_) { /* ignore */ }
             }
+            // The frame may be the one actually rendering the comments, so describe
+            // ITS structure too rather than only counting our own selectors in it.
+            entry.frameUrl = String(doc.location && doc.location.href || '(unknown)').slice(0, 140);
+            try {
+              const all = Array.from(doc.querySelectorAll('*')).slice(0, 8000);
+              entry.frameElementCount = all.length;
+              const custom = [];
+              for (const el of all) {
+                const tag = el.tagName ? el.tagName.toLowerCase() : '';
+                if (tag.indexOf('-') !== -1 && custom.indexOf(tag) === -1) {
+                  custom.push(tag);
+                  if (custom.length >= 60) break;
+                }
+              }
+              entry.frameCustomElementTags = custom;
+              // Comment-UI landmarks inside the frame.
+              const marks = [];
+              for (const el of Array.from(doc.querySelectorAll('button, [aria-label], a')).slice(0, 4000)) {
+                const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
+                if (label === 'Reply' || /translate to english/i.test(label)) {
+                  marks.push(label.slice(0, 40) + ' @ ' + describe(el));
+                  if (marks.length >= 3) break;
+                }
+              }
+              entry.frameCommentUiLandmarks = marks;
+              // Ancestor walk inside the frame, from the first landmark.
+              if (marks.length) {
+                const chain = [];
+                let cur = null;
+                for (const el of Array.from(doc.querySelectorAll('button, [aria-label], a')).slice(0, 4000)) {
+                  const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
+                  if (label === 'Reply' || /translate to english/i.test(label)) { cur = el; break; }
+                }
+                for (let i = 0; i < 8 && cur; i++) {
+                  chain.push(describe(cur));
+                  cur = cur.parentElement;
+                }
+                entry.frameAncestorChain = chain;
+              }
+              // A text sample, so a frame can be identified at a glance.
+              const body = doc.body;
+              entry.frameBodyTextSample = body
+                ? String(body.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+                : '(no body)';
+            } catch (err) {
+              entry.frameInspectError = err && err.message;
+            }
           }
         } catch (err) {
           entry.reachable = false;
@@ -174,6 +232,15 @@ class YouTubeSiteAdapter {
       }
     } catch (_) { /* ignore */ }
     report.iframes = iframeFindings;
+
+    // Frame topology: are we even running in the frame the user is looking at?
+    try {
+      report.frameTopology = {
+        isTopFrame: window.top === window,
+        frameCount: (() => { try { return window.frames.length; } catch (_) { return '?'; } })(),
+        parentIsTop: (() => { try { return window.parent === window.top; } catch (_) { return '?'; } })()
+      };
+    } catch (_) { report.frameTopology = 'unavailable'; }
 
     // 3. Probe open shadow roots, which querySelectorAll cannot cross.
     const shadowFindings = [];
@@ -247,8 +314,14 @@ class YouTubeSiteAdapter {
     report.customElementTags = custom;
 
     // 7. State the most likely explanation explicitly.
-    const inIframe = iframeFindings.some((f) =>
-      f.reachable && f.selectorHits && Object.keys(f.selectorHits).length > 0);
+    // A frame counts as holding the comments if our selectors match inside it, OR if
+    // it shows comment UI that our own document does not have at all.
+    const inIframe = iframeFindings.some((f) => {
+      if (!f.reachable) return false;
+      if (f.selectorHits && Object.keys(f.selectorHits).length > 0) return true;
+      return landmarks.length === 0 &&
+        Array.isArray(f.frameCommentUiLandmarks) && f.frameCommentUiLandmarks.length > 0;
+    });
     const inShadow = shadowFindings.some((s) => s.hits && Object.keys(s.hits).length > 0);
     // Did YouTube actually build any comment UI or custom elements at all?
     // Used only to phrase the verdict, never for detection.
@@ -257,7 +330,9 @@ class YouTubeSiteAdapter {
 
     let diagnosis;
     if (inIframe) {
-      diagnosis = 'COMMENTS ARE INSIDE AN IFRAME — document-level selectors cannot see them.';
+      diagnosis = 'COMMENTS ARE INSIDE AN IFRAME — document-level selectors cannot see them. ' +
+        'Look at iframes[].frameCustomElementTags and iframes[].frameAncestorChain. ' +
+        'The content script is not injected into frames unless the manifest sets all_frames.';
     } else if (inShadow) {
       diagnosis = 'COMMENTS ARE INSIDE AN OPEN SHADOW ROOT — document-level selectors cannot cross it.';
     } else if (landmarks.length > 0) {

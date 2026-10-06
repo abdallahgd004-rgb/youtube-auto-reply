@@ -426,6 +426,29 @@ async function init() {
   }
 }
 
+// Debugging bridge.
+//
+// The content script runs in an isolated world, so YouTubeSiteAdapter is NOT reachable
+// from the page DevTools console, and the earlier one-shot diagnostic only fires at
+// page load, before YouTube has rendered the comments. A CustomEvent crosses the
+// isolated-world boundary because both sides share the DOM, which is what makes an
+// on-demand diagnostic possible at all.
+//
+// From the PAGE console, after scrolling the comments into view:
+//     document.dispatchEvent(new CustomEvent('youtube-auto-reply-diagnose'))
+document.addEventListener('youtube-auto-reply-diagnose', () => {
+  if (!SiteAdapter) {
+    console.warn('[YouTube Auto Reply] diagnose event: site adapter not loaded');
+    return;
+  }
+  try {
+    new SiteAdapter()._logNoCommentsDiagnostic(true);
+    console.log('[YouTube Auto Reply] diagnose event: diagnostic requested');
+  } catch (error) {
+    console.error('[YouTube Auto Reply] diagnose event failed:', error.message);
+  }
+});
+
 // Run initialization when DOM is ready
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
