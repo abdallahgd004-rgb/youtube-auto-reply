@@ -266,9 +266,16 @@ class YouTubeSiteAdapter {
     // 4. Look for recognisable comment UI, purely as a landmark for the dump.
     //    This is NOT used as a production selector.
     const landmarks = [];
+    let landmarkScanTruncated = false;
     try {
+      // Scan every candidate rather than the first N. YouTube's document is enormous
+      // and the first few thousand buttons all live in the masthead, player and
+      // sidebar, so an early cap could never reach the comments.
       const all = Array.from(document.querySelectorAll('button, [aria-label], a'));
-      for (const el of all.slice(0, 4000)) {
+      const LANDMARK_SCAN_LIMIT = 60000;
+      const scanned = all.length > LANDMARK_SCAN_LIMIT ? all.slice(0, LANDMARK_SCAN_LIMIT) : all;
+      landmarkScanTruncated = all.length > LANDMARK_SCAN_LIMIT;
+      for (const el of scanned) {
         const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
         if (!label) continue;
         if (label === 'Reply' || /translate to english/i.test(label)) {
@@ -278,12 +285,13 @@ class YouTubeSiteAdapter {
       }
     } catch (_) { /* ignore */ }
     report.commentUiLandmarks = landmarks;
+    report.commentUiLandmarkScanTruncated = landmarkScanTruncated;
 
     // 5. Walk up from a landmark so the surrounding structure is visible.
     const ancestorChains = [];
     try {
       const all = Array.from(document.querySelectorAll('button, [aria-label], a'));
-      for (const el of all.slice(0, 4000)) {
+      for (const el of all.slice(0, 60000)) {
         const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
         if (label !== 'Reply' && !/translate to english/i.test(label)) continue;
         const chain = [];
@@ -300,18 +308,67 @@ class YouTubeSiteAdapter {
 
     // 6. Census of custom element tag names, the most likely place a renamed
     //    comment element would show up.
+    //
+    //    This previously stopped after 60 distinct tags in DOCUMENT ORDER, which on
+    //    YouTube means it never got past the masthead and player and reported a
+    //    misleadingly short list. It now scans the whole document, keeps any tag that
+    //    looks comment-related, and says explicitly whether it truncated.
     const custom = [];
+    const commentRelatedTags = [];
+    const commentRelatedClasses = [];
+    let totalElements = 0;
+    let censusTruncated = false;
+    const CENSUS_LIMIT = 1500;
     try {
-      const all = Array.from(document.querySelectorAll('*')).slice(0, 8000);
+      const all = Array.from(document.querySelectorAll('*'));
+      totalElements = all.length;
       for (const el of all) {
+        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+        if (tag.indexOf('comment') !== -1 && commentRelatedTags.indexOf(tag) === -1) {
+          commentRelatedTags.push(tag);
+          if (commentRelatedTags.length >= 80) break;
+        }
+        try {
+          const cls = typeof el.className === 'string' ? el.className : '';
+          if (cls && cls.indexOf('comment') !== -1) {
+            for (const c of cls.trim().split(/\s+/)) {
+              if (c.indexOf('comment') !== -1 && commentRelatedClasses.indexOf(c) === -1) {
+                commentRelatedClasses.push(c);
+                if (commentRelatedClasses.length >= 60) break;
+              }
+            }
+          }
+        } catch (_) { /* ignore */ }
+      }
+      // Distinct custom tags, now capped much higher and flagged rather than silent.
+      for (const el of all.slice(0, CENSUS_LIMIT)) {
         const tag = el.tagName ? el.tagName.toLowerCase() : '';
         if (tag.indexOf('-') !== -1 && custom.indexOf(tag) === -1) {
           custom.push(tag);
-          if (custom.length >= 60) break;
+          if (custom.length >= 300) { censusTruncated = true; break; }
         }
       }
     } catch (_) { /* ignore */ }
     report.customElementTags = custom;
+    report.customElementTagsTruncated = censusTruncated;
+    report.totalElementsInDocument = totalElements;
+
+    // 6b. THE DECISIVE SCAN: any element whose tag name or class mentions "comment".
+    //     This is independent of document order and of any assumed YouTube selector,
+    //     so it cannot miss the comment section the way an early-capped census did.
+    report.commentRelatedTagNames = commentRelatedTags;
+    report.commentRelatedClassNames = commentRelatedClasses;
+
+    // 6c. Is the comments panel still loading? YouTube shows a spinner in the
+    //     engagement panel until the comment section has been fetched.
+    try {
+      report.commentsStillLoading = {
+        contentLoadingRenderer: document.querySelectorAll('yt-content-loading-renderer').length,
+        spinner: document.querySelectorAll('tp-yt-paper-spinner').length,
+        commentsPanel: document.querySelectorAll('ytd-engagement-panel-section-list-renderer').length,
+        commentsSection: document.querySelectorAll('[target-id="engagement-panel-comments-section"]').length
+      };
+    } catch (_) { report.commentsStillLoading = 'unavailable'; }
 
     // 7. State the most likely explanation explicitly.
     // A frame counts as holding the comments if our selectors match inside it, OR if
@@ -328,6 +385,18 @@ class YouTubeSiteAdapter {
     const looksRendered = landmarks.length > 0 ||
       custom.some((tag) => tag.indexOf('ytd-') === 0 || tag.indexOf('yt-') === 0);
 
+    // A visible spinner in the engagement panel means the comments have not arrived yet,
+    // which fully explains every selector returning zero.
+    let commentsLoading = false;
+    try {
+      const loading = report.commentsStillLoading;
+      commentsLoading = !!(
+        loading &&
+        loading.contentLoadingRenderer > 0 &&
+        commentRelatedTags.length === 0
+      );
+    } catch (_) { commentsLoading = false; }
+
     let diagnosis;
     if (inIframe) {
       diagnosis = 'COMMENTS ARE INSIDE AN IFRAME — document-level selectors cannot see them. ' +
@@ -335,9 +404,12 @@ class YouTubeSiteAdapter {
         'The content script is not injected into frames unless the manifest sets all_frames.';
     } else if (inShadow) {
       diagnosis = 'COMMENTS ARE INSIDE AN OPEN SHADOW ROOT — document-level selectors cannot cross it.';
-    } else if (landmarks.length > 0) {
+    } else if (landmarks.length > 0 || commentRelatedTags.length > 0) {
       diagnosis = 'COMMENTS EXIST BUT OUR SELECTORS DO NOT MATCH them. ' +
-        'See ancestorChainsFromCommentUi for the real structure around a comment.';
+        'See commentRelatedTagNames and ancestorChainsFromCommentUi for the real structure.';
+    } else if (commentsLoading) {
+      diagnosis = 'THE COMMENTS PANEL IS STILL LOADING — YouTube has not rendered the comments yet. ' +
+        'Wait for the comment count to appear, then dispatch the diagnose event again.';
     } else if (!looksRendered) {
       // No comment UI and no YouTube custom elements at all means the comment section
       // genuinely has not been built yet, so any selector would come back empty.
