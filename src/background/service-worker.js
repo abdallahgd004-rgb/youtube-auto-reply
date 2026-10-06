@@ -10,6 +10,7 @@ import { match as containsMatch } from '../core/matchers/contains-matcher.js';
 import { match as exactMatch } from '../core/matchers/exact-matcher.js';
 import { buildReplyPrompt } from '../core/prompt-builder.js';
 import { getSettings } from '../core/storage.js';
+import { DEFAULT_CONFIG } from '../core/config.js';
 
 // Phase 9.x — Deduplication imports
 import { createFingerprint } from '../core/comment-fingerprint.js';
@@ -41,6 +42,28 @@ const PLATFORM_SITE = 'YouTube';
 let workerRunning = false;
 
 /**
+ * Resolve the minimum inter-job delay, falling back to the configured default.
+ *
+ * A valid value is a finite number >= 0. `0` is valid and means "no delay".
+ * Anything else (missing, undefined, null, NaN, Infinity, negative, string,
+ * boolean) falls back to DEFAULT_CONFIG so an invalid setting can never produce
+ * a 0ms delay by accident, nor an unbounded or hanging wait.
+ *
+ * @param {*} rawValue — the untrusted settings value
+ * @returns {number} a finite, non-negative delay in milliseconds
+ */
+function resolveMinDelayMs(rawValue) {
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue >= 0) {
+    return rawValue;
+  }
+  console.warn(
+    '[YouTube Auto Reply] invalid replyBehavior.minDelayMs, using default:',
+    DEFAULT_CONFIG.replyBehavior.minDelayMs
+  );
+  return DEFAULT_CONFIG.replyBehavior.minDelayMs;
+}
+
+/**
  * Start the worker loop if it is not already running.
  *
  * The guard ensures at most one drain-loop runs at any time — jobs are
@@ -59,6 +82,18 @@ function ensureWorkerRunning() {
           console.error('[YouTube Auto Reply] job processor: unhandled error, continuing:', error.message);
           try { job.respondOnce({ success: false, error: `Processing failed: ${error.message}` }); }
           catch (_) {}
+        }
+
+        // ── Phase 10.3: minimum delay between jobs ───────────────────────
+        // Only wait if another job is actually waiting. The delay is measured
+        // from THIS point (after the previous job finished), so the previous
+        // job's processing time is not counted toward it.
+        // sendResponse already fired inside processJob, so the content script
+        // is not made to wait out this gap.
+        if (!jobQueue.isEmpty()) {
+          const settings = await getSettings();
+          const minDelayMs = resolveMinDelayMs(settings?.replyBehavior?.minDelayMs);
+          await new Promise((resolve) => setTimeout(resolve, minDelayMs));
         }
       }
     } finally {
