@@ -18,6 +18,7 @@ import { isQueuePaused, setQueuePaused } from '../core/queue-control.js';
 import { createFingerprint } from '../core/comment-fingerprint.js';
 import { isHandled, markHandled } from '../core/handled-comments.js';
 import { createReplyDeduplicator } from '../core/reply-deduplicator.js';
+import { validateReply } from '../core/reply-validator.js';
 
 // Phase 10.2 — One-at-a-time job queue
 import { createQueue } from '../core/queue.js';
@@ -282,9 +283,21 @@ async function processJob(job) {
       console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation attempted for comment id=${verdict.id}`);
       const result = await chatCompletion(messages);
 
-      // Log outcome AFTER the call resolves
-      const replyText = result.text || '';
-      console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${replyText.length}, preview="${(replyText || '').substring(0, 100)}..."`);
+      // ── Task 7.4: validate before anything can be posted ───────────────
+      // Pass BOTH text and reasoning so the validator can detect the case
+      // where the model's chain of thought leaked into text.
+      const validation = validateReply({ text: result.text, reasoning: result.reasoning });
+      if (!validation.valid) {
+        console.error(
+          `[YouTube Auto Reply] COMMENT_DETECTED: rejected generated reply for id=${verdict.id}, reason=${validation.reason}`
+        );
+        job.respondOnce({ success: false, id: verdict.id, error: `Invalid reply: ${validation.reason}` });
+        return;
+      }
+
+      // Log outcome AFTER the call resolves, using the validated text.
+      const replyText = validation.reply;
+      console.log(`[YouTube Auto Reply] COMMENT_DETECTED: generation completed for comment id=${verdict.id}, reply length=${replyText.length}, preview="${replyText.substring(0, 100)}..."`);
       verdict.reply = replyText;
 
       // ── Two independent decisions, deliberately decoupled ───────────────
