@@ -2,7 +2,7 @@
 // Phase 3: Model dropdown with LM Studio integration + Phase 3.5: Connection Test
 
 import { getSettings, saveSettings } from '../core/storage.js';
-import { getTriggers } from '../core/trigger-crud.js';
+import { getTriggers, addTrigger } from '../core/trigger-crud.js';
 
 console.log('[YouTube Auto Reply] Options page loaded');
 
@@ -274,6 +274,77 @@ function clearResult() {
 }
 
 /**
+ * Show an error next to the Create Trigger form.
+ */
+function showTriggerError(message) {
+  const errorEl = document.getElementById('trigger-error');
+  errorEl.textContent = message;
+  errorEl.style.display = 'block';
+}
+
+
+/**
+ * Clear any Create Trigger error.
+ */
+function clearTriggerError() {
+  const errorEl = document.getElementById('trigger-error');
+  errorEl.textContent = '';
+  errorEl.style.display = 'none';
+}
+
+
+/**
+ * Create a trigger from the Create Trigger form.
+ *
+ * All creation logic (id generation, defaults, validation, persistence) already lives in
+ * addTrigger(). This only reads the form, hands the values over, and refreshes the list.
+ */
+async function handleAddTrigger() {
+  const phraseInput = document.getElementById('trigger-phrase');
+  const modeSelect = document.getElementById('trigger-match-mode');
+  const enabledBox = document.getElementById('trigger-enabled');
+  const caseSensitiveBox = document.getElementById('trigger-case-sensitive');
+
+  clearTriggerError();
+
+  // Split on commas so a single input can produce the phrases array the schema expects,
+  // then drop empty entries from stray or trailing commas.
+  const phrases = phraseInput.value
+    .split(',')
+    .map((phrase) => phrase.trim())
+    .filter((phrase) => phrase.length > 0);
+
+  if (phrases.length === 0) {
+    showTriggerError('Please enter at least one phrase.');
+    return;
+  }
+
+  try {
+    const created = await addTrigger({
+      phrases,
+      matchMode: modeSelect.value,
+      enabled: enabledBox.checked,
+      caseSensitive: caseSensitiveBox.checked
+    });
+
+    console.log('[YouTube Auto Reply] Trigger created:', created.id);
+
+    // Reset the form to its defaults.
+    phraseInput.value = '';
+    modeSelect.value = 'contains';
+    enabledBox.checked = true;
+    caseSensitiveBox.checked = false;
+
+    // Refresh the existing list so the new trigger appears.
+    await loadTriggers();
+  } catch (error) {
+    console.error('[YouTube Auto Reply] Error creating trigger:', error.message);
+    showTriggerError(`Could not create trigger: ${error.message}`);
+  }
+}
+
+
+/**
  * Load and display trigger rules in the triggers list.
  */
 async function loadTriggers() {
@@ -379,5 +450,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const chatBtn = document.getElementById('test-chat-completion-btn');
   if (chatBtn) {
     chatBtn.addEventListener('click', testChatCompletion);
+  }
+
+  // Attach create-trigger handler
+  const addTriggerBtn = document.getElementById('add-trigger-btn');
+  if (addTriggerBtn) {
+    addTriggerBtn.addEventListener('click', handleAddTrigger);
   }
 });
