@@ -82,16 +82,52 @@ class YouTubeSiteAdapter {
   }
 
   /**
-   * One-shot diagnostic for the "no comment elements" case.
+   * DEBUGGING ONLY. Describe a DOM node compactly for the diagnostic log.
+   * Never used for detection.
    *
-   * Reports what the page actually contains so the cause can be read off a real
-   * browser console instead of guessed at. Runs at most once per page load, and only
-   * when nothing was found, so it cannot spam the console.
+   * @param {Element} node
+   * @returns {string} one-line description
    */
-  _logNoCommentsDiagnostic() {
-    if (YouTubeSiteAdapter._diagnosticLogged) return;
+  static _describeNode(node) {
+    if (!node) return 'null';
+    let out = node.tagName ? node.tagName.toLowerCase() : String(node.nodeName || '?');
+    try {
+      if (node.id) out += '#' + node.id;
+      const cls = node.className && typeof node.className === 'string'
+        ? node.className.trim().split(/\s+/).filter(Boolean).slice(0, 4)
+        : [];
+      if (cls.length) out += '.' + cls.join('.');
+    } catch (_) { /* ignore */ }
+    try {
+      const data = [];
+      for (const attr of Array.from(node.attributes || [])) {
+        if (attr.name.indexOf('data-') === 0) data.push(attr.name + '=' + String(attr.value).slice(0, 40));
+        if (data.length >= 4) break;
+      }
+      if (data.length) out += ' [' + data.join(' ') + ']';
+    } catch (_) { /* ignore */ }
+    return out;
+  }
+
+  /**
+   * DEBUGGING ONLY. Inspect the real DOM to work out why comment detection found
+   * nothing. Uses no assumed YouTube selector: it probes iframes, open shadow roots,
+   * and the presence of recognisable comment UI text, then reports what it actually
+   * found. One-shot per page load unless `force` is passed, so it can be re-run by
+   * hand from the console once comments are on screen.
+   *
+   * @param {boolean} [force] - log again even if already logged this page load
+   * @returns {void}
+   */
+  _logNoCommentsDiagnostic(force) {
+    if (YouTubeSiteAdapter._diagnosticLogged && !force) return;
     YouTubeSiteAdapter._diagnosticLogged = true;
 
+    const sel = YouTubeSiteAdapter.SELECTORS;
+    const describe = YouTubeSiteAdapter._describeNode;
+    const report = {};
+
+    // 1. Current known selectors, for reference.
     const counts = {};
     for (const selector of this.getCommentSelectors()) {
       try {
@@ -100,30 +136,147 @@ class YouTubeSiteAdapter {
         counts[selector] = 'invalid selector';
       }
     }
-
-    let containerInfo = 'no comments container found';
+    report.selectorCounts = counts;
     try {
-      const container = document.querySelector('#comments') ||
-        document.querySelector('ytd-comments') ||
-        document.querySelector('ytd-item-section-renderer');
-      if (container) {
-        const all = container.querySelectorAll('*');
-        const tags = [];
-        for (let i = 0; i < all.length && tags.length < 30; i++) {
-          const tag = all[i].tagName.toLowerCase();
-          if (tags.indexOf(tag) === -1) tags.push(tag);
+      report.page = {
+        url: String(location.href).slice(0, 140),
+        readyState: document.readyState,
+        bodyChildren: document.body ? document.body.children.length : -1
+      };
+    } catch (_) { report.page = 'unavailable'; }
+
+    // 2. Probe iframes. Comments rendered inside a same-origin iframe are invisible
+    //    to document.querySelectorAll in this document.
+    const iframeFindings = [];
+    try {
+      const frames = Array.from(document.querySelectorAll('iframe'));
+      for (const frame of frames.slice(0, 8)) {
+        const entry = { src: String(frame.getAttribute('src') || '(none)').slice(0, 120) };
+        try {
+          const doc = frame.contentDocument;
+          if (!doc) {
+            entry.reachable = false;
+          } else {
+            entry.reachable = true;
+            entry.selectorHits = {};
+            for (const selector of this.getCommentSelectors()) {
+              try {
+                const n = doc.querySelectorAll(selector).length;
+                if (n) entry.selectorHits[selector] = n;
+              } catch (_) { /* ignore */ }
+            }
+          }
+        } catch (err) {
+          entry.reachable = false;
+          entry.error = err && err.name;
         }
-        containerInfo = 'container=' + container.tagName.toLowerCase() +
-          ' descendants=' + all.length +
-          ' tags=' + tags.join(',');
+        iframeFindings.push(entry);
       }
-    } catch (_) {
-      containerInfo = 'container lookup failed';
+    } catch (_) { /* ignore */ }
+    report.iframes = iframeFindings;
+
+    // 3. Probe open shadow roots, which querySelectorAll cannot cross.
+    const shadowFindings = [];
+    try {
+      const all = Array.from(document.querySelectorAll('*')).slice(0, 6000);
+      for (const el of all) {
+        let root = null;
+        try { root = el.shadowRoot; } catch (_) { root = null; }
+        if (!root) continue;
+        const entry = { host: describe(el), hits: {} };
+        for (const selector of this.getCommentSelectors()) {
+          try {
+            const n = root.querySelectorAll(selector).length;
+            if (n) entry.hits[selector] = n;
+          } catch (_) { /* ignore */ }
+        }
+        shadowFindings.push(entry);
+        if (shadowFindings.length >= 5) break;
+      }
+    } catch (_) { /* ignore */ }
+    report.openShadowRoots = shadowFindings;
+
+    // 4. Look for recognisable comment UI, purely as a landmark for the dump.
+    //    This is NOT used as a production selector.
+    const landmarks = [];
+    try {
+      const all = Array.from(document.querySelectorAll('button, [aria-label], a'));
+      for (const el of all.slice(0, 4000)) {
+        const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
+        if (!label) continue;
+        if (label === 'Reply' || /translate to english/i.test(label)) {
+          landmarks.push({ label: label.slice(0, 60), node: describe(el) });
+          if (landmarks.length >= 3) break;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    report.commentUiLandmarks = landmarks;
+
+    // 5. Walk up from a landmark so the surrounding structure is visible.
+    const ancestorChains = [];
+    try {
+      const all = Array.from(document.querySelectorAll('button, [aria-label], a'));
+      for (const el of all.slice(0, 4000)) {
+        const label = String(el.getAttribute('aria-label') || el.textContent || '').trim();
+        if (label !== 'Reply' && !/translate to english/i.test(label)) continue;
+        const chain = [];
+        let cur = el;
+        for (let i = 0; i < 8 && cur; i++) {
+          chain.push(describe(cur));
+          cur = cur.parentElement;
+        }
+        ancestorChains.push(chain);
+        if (ancestorChains.length >= 2) break;
+      }
+    } catch (_) { /* ignore */ }
+    report.ancestorChainsFromCommentUi = ancestorChains;
+
+    // 6. Census of custom element tag names, the most likely place a renamed
+    //    comment element would show up.
+    const custom = [];
+    try {
+      const all = Array.from(document.querySelectorAll('*')).slice(0, 8000);
+      for (const el of all) {
+        const tag = el.tagName ? el.tagName.toLowerCase() : '';
+        if (tag.indexOf('-') !== -1 && custom.indexOf(tag) === -1) {
+          custom.push(tag);
+          if (custom.length >= 60) break;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    report.customElementTags = custom;
+
+    // 7. State the most likely explanation explicitly.
+    const inIframe = iframeFindings.some((f) =>
+      f.reachable && f.selectorHits && Object.keys(f.selectorHits).length > 0);
+    const inShadow = shadowFindings.some((s) => s.hits && Object.keys(s.hits).length > 0);
+    // Did YouTube actually build any comment UI or custom elements at all?
+    // Used only to phrase the verdict, never for detection.
+    const looksRendered = landmarks.length > 0 ||
+      custom.some((tag) => tag.indexOf('ytd-') === 0 || tag.indexOf('yt-') === 0);
+
+    let diagnosis;
+    if (inIframe) {
+      diagnosis = 'COMMENTS ARE INSIDE AN IFRAME — document-level selectors cannot see them.';
+    } else if (inShadow) {
+      diagnosis = 'COMMENTS ARE INSIDE AN OPEN SHADOW ROOT — document-level selectors cannot cross it.';
+    } else if (landmarks.length > 0) {
+      diagnosis = 'COMMENTS EXIST BUT OUR SELECTORS DO NOT MATCH them. ' +
+        'See ancestorChainsFromCommentUi for the real structure around a comment.';
+    } else if (!looksRendered) {
+      // No comment UI and no YouTube custom elements at all means the comment section
+      // genuinely has not been built yet, so any selector would come back empty.
+      diagnosis = 'COMMENTS HAVE NOT BEEN RENDERED YET — no comment UI and no YouTube ' +
+        'custom elements were present. Scroll to the comments, then force a re-run with: ' +
+        'new YouTubeSiteAdapter()._logNoCommentsDiagnostic(true)';
+    } else {
+      diagnosis = 'COMMENTS ARE PRESENT IN THE DOM BUT NOT DISCOVERABLE by the current search, ' +
+        'and no comment UI landmark was recognised. Inspect customElementTags.';
     }
 
     console.warn(
-      '[YouTube Auto Reply] DIAGNOSTIC: no comment elements matched. ' +
-      'selectorCounts=' + JSON.stringify(counts) + ' | ' + containerInfo
+      '[YouTube Auto Reply] DIAGNOSTIC (debug only): ' +
+      'diagnosis=' + diagnosis + ' report=' + JSON.stringify(report, null, 1)
     );
   }
 
