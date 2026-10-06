@@ -63,17 +63,26 @@ class YouTubeSiteAdapter {
         }
       }
 
-      // Extract author name from author line
+      // Extract author name. YouTube has used several markups over time, so try
+      // the current anchor first and fall back to the legacy span.
+      //
+      // Read the element's OWN textContent rather than searching it for nested
+      // <span>s: in current markup `.author-name` IS the element holding the
+      // name, so a nested span query returns nothing and the author came out
+      // empty on every comment.
       let author = '';
-      const authorLine = node.querySelector(YouTubeSiteAdapter.SELECTORS.AUTHOR_LINE);
-      if (authorLine) {
-        const textNodes = authorLine.querySelectorAll('span');
-        for (const span of textNodes) {
-          const text = span.textContent.trim();
-          if (text && !text.startsWith('[')) { // Skip metadata like [deleted]
-            author = text;
-            break;
-          }
+      const authorSelectors = [
+        YouTubeSiteAdapter.SELECTORS.AUTHOR_LINK,
+        YouTubeSiteAdapter.SELECTORS.AUTHOR_LINE
+      ];
+      for (const selector of authorSelectors) {
+        const authorEl = node.querySelector(selector);
+        if (!authorEl) continue;
+        const text = (authorEl.textContent || '').trim();
+        // Skip metadata markers such as "[deleted]" or "[الم|作者 محذوف]".
+        if (text && !text.startsWith('[')) {
+          author = text;
+          break;
         }
       }
 
@@ -370,7 +379,10 @@ YouTubeSiteAdapter.SELECTORS = {
   COMMENT_LEGACY: '#comment',
   COMMENT_SIMPLE: '.ytd-comment',
 
-  // Comment author line selector
+  // Comment author line selectors. Current YouTube puts the name directly in
+  // an anchor with id "author-text"; older markup wrapped it in a
+  // span.author-name. Try both.
+  AUTHOR_LINK: '#author-text',
   AUTHOR_LINE: '.author-name',
 
   // Comment text content selector (yt-formatted-string or #text)
