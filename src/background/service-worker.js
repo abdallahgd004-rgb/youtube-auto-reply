@@ -64,6 +64,55 @@ function resolveMinDelayMs(rawValue) {
 }
 
 /**
+ * Resolve the maximum inter-job delay, falling back to the configured default.
+ *
+ * A valid value is a finite number >= 0. `0` is valid. Anything else falls back to
+ * DEFAULT_CONFIG. A value SMALLER than the resolved minimum is treated as
+ * inverted-range user error and clamped up to the minimum, so the final random
+ * delay can never end up below minDelayMs.
+ *
+ * @param {*} rawValue — the untrusted settings value
+ * @param {number} minDelayMs — the already-resolved minimum, used as the floor
+ * @returns {number} a finite, non-negative maximum delay in milliseconds
+ */
+function resolveMaxDelayMs(rawValue, minDelayMs) {
+  let max;
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue >= 0) {
+    max = rawValue;
+  } else {
+    console.warn(
+      '[YouTube Auto Reply] invalid replyBehavior.maxDelayMs, using default:',
+      DEFAULT_CONFIG.replyBehavior.maxDelayMs
+    );
+    max = DEFAULT_CONFIG.replyBehavior.maxDelayMs;
+  }
+  if (max < minDelayMs) {
+    console.warn(
+      '[YouTube Auto Reply] replyBehavior.maxDelayMs is below minDelayMs, clamping to minDelayMs'
+    );
+    return minDelayMs;
+  }
+  return max;
+}
+
+/**
+ * Pick a random whole-millisecond delay within an inclusive [min, max] range.
+ *
+ * The `+ 1` makes the range inclusive of `max`, so both endpoints are reachable.
+ * The final clamp guards against any caller passing a reversed range, which would
+ * otherwise make the multiplier negative and produce a delay outside the range.
+ *
+ * @param {number} min — inclusive lower bound, a finite number >= 0
+ * @param {number} max — inclusive upper bound, a finite number >= min
+ * @returns {number} an integer in [min, max]
+ */
+function randomDelayMs(min, max) {
+  const span = max - min + 1;
+  const picked = Math.floor(min + Math.random() * span);
+  return Math.min(Math.max(picked, min), max);
+}
+
+/**
  * Start the worker loop if it is not already running.
  *
  * The guard ensures at most one drain-loop runs at any time — jobs are
@@ -84,7 +133,7 @@ function ensureWorkerRunning() {
           catch (_) {}
         }
 
-        // ── Phase 10.3: minimum delay between jobs ───────────────────────
+        // ── Phase 10.4: random delay between jobs (within min/max) ─────
         // Only wait if another job is actually waiting. The delay is measured
         // from THIS point (after the previous job finished), so the previous
         // job's processing time is not counted toward it.
@@ -93,7 +142,9 @@ function ensureWorkerRunning() {
         if (!jobQueue.isEmpty()) {
           const settings = await getSettings();
           const minDelayMs = resolveMinDelayMs(settings?.replyBehavior?.minDelayMs);
-          await new Promise((resolve) => setTimeout(resolve, minDelayMs));
+          const maxDelayMs = resolveMaxDelayMs(settings?.replyBehavior?.maxDelayMs, minDelayMs);
+          const delayMs = randomDelayMs(minDelayMs, maxDelayMs);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
         }
       }
     } finally {
