@@ -47,37 +47,60 @@ function processBatch(nodes) {
   const adapter = new SiteAdapter();
   
   for (const node of nodes) {
-    // Try to parse as a comment directly first
-    let parsedComment = adapter.parseComment(node);
-    
-    if (parsedComment && !seenIds.has(parsedComment.id)) {
-      seenIds.add(parsedComment.id);
-      
-      console.log('[YouTube Auto Reply] New comment detected:', parsedComment.text.substring(0, 50) + '...');
-      
-      // Send to background via message bridge
-      sendMessage('COMMENT_DETECTED', { comment: parsedComment }).catch(function (err) {
-        console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + parsedComment.id + ': ' + err.message);
-      });
+    // Only treat the node itself as a comment if it IS one. The observer also hands
+    // us large containers; parseComment() on a container would return the first
+    // comment inside it under a fabricated fallback id, creating a bogus comment and
+    // burning a seenIds entry for it.
+    if (adapter.isCommentNode(node)) {
+      const parsedComment = adapter.parseComment(node);
+
+      if (parsedComment && !seenIds.has(parsedComment.id)) {
+        seenIds.add(parsedComment.id);
+
+        console.log('[YouTube Auto Reply] New comment detected:', parsedComment.text.substring(0, 50) + '...');
+
+        // Send to background via message bridge
+        sendMessage('COMMENT_DETECTED', { comment: parsedComment }).catch(function (err) {
+          console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + parsedComment.id + ': ' + err.message);
+        });
+      }
     }
 
     // Also check for nested comment threads within the mutation.
     // Use adapter's static SELECTORS property (exposed for cross-script access).
+    // querySelectorAll matches all descendants, not just direct children, so a
+    // comment rendered several levels below the inserted node is still found.
     const childComments = node.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD);
     if (childComments.length > 0) {
       childComments.forEach(function(commentNode) {
         let pc = adapter.parseComment(commentNode);
         if (pc && !seenIds.has(pc.id)) {
           seenIds.add(pc.id);
-          
+
           console.log('[YouTube Auto Reply] New comment detected:', pc.text.substring(0, 50) + '...');
-          
+
           sendMessage('COMMENT_DETECTED', { comment: pc }).catch(function (err) {
             console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + pc.id + ': ' + err.message);
           });
         }
       });
     }
+
+    // A mutation may also carry comments that use the inner renderer only. Covered by
+    // the adapter's own selector list so detection does not depend on the wrapper tag.
+    const innerComments = node.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_RENDERER);
+    innerComments.forEach(function(commentNode) {
+      // Skip renderers already covered as descendants of a matched thread.
+      if (commentNode.closest && commentNode.closest(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD)) return;
+      const pc = adapter.parseComment(commentNode);
+      if (pc && !seenIds.has(pc.id)) {
+        seenIds.add(pc.id);
+        console.log('[YouTube Auto Reply] New comment detected (renderer):', pc.text.substring(0, 50) + '...');
+        sendMessage('COMMENT_DETECTED', { comment: pc }).catch(function (err) {
+          console.error('[YouTube Auto Reply] sendMessage failed for comment id=' + pc.id + ': ' + err.message);
+        });
+      }
+    });
   }
 }
 

@@ -15,30 +15,116 @@ class YouTubeSiteAdapter {
   }
 
   /**
+   * Selectors that can identify a single comment element, most specific first.
+   *
+   * COMMENT_THREAD is the usual wrapper. COMMENT_RENDERER is the inner element that
+   * actually holds the author and body, so it is a safe second choice: whenever a
+   * comment is rendered at all, this element exists too.
+   *
+   * @returns {string[]} selectors to try, in order
+   */
+  getCommentSelectors() {
+    const S = YouTubeSiteAdapter.SELECTORS;
+    return [S.COMMENT_THREAD, S.COMMENT_RENDERER, S.COMMENT_LEGACY, S.COMMENT_SIMPLE];
+  }
+
+  /**
+   * Whether this element IS a comment, rather than merely containing one.
+   *
+   * Needed because the MutationObserver hands us every inserted element, including
+   * large containers. parseComment() on a container would happily return the text of
+   * the first comment inside it under a fabricated fallback id, producing a bogus
+   * comment and polluting the seenIds dedup set.
+   *
+   * @param {HTMLElement} node - candidate element
+   * @returns {boolean} true when the node itself is a comment element
+   */
+  isCommentNode(node) {
+    if (!node || typeof node.matches !== 'function') return false;
+    return this.getCommentSelectors().some((selector) => {
+      try {
+        return node.matches(selector);
+      } catch (_) {
+        return false;
+      }
+    });
+  }
+
+  /**
    * Find all comment nodes in the current document.
    * @returns {Array} Array of comment element nodes
    */
   findCommentNodes() {
     const comments = [];
-    
-    // Try primary selector first (exposed as static property for cross-script access)
-    let commentElements = document.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD);
-    
-    if (commentElements.length === 0) {
-      // Fall back to legacy selector
-      commentElements = document.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_LEGACY);
+
+    // First selector that matches anything wins, so we never return the same
+    // comment twice via two different selectors.
+    for (const selector of this.getCommentSelectors()) {
+      let found = [];
+      try {
+        found = Array.from(document.querySelectorAll(selector));
+      } catch (_) {
+        continue;
+      }
+      if (found.length > 0) {
+        for (const element of found) {
+          comments.push(element);
+        }
+        return comments;
+      }
     }
-    
-    if (commentElements.length === 0) {
-      // Last resort: try simple selector
-      commentElements = document.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_SIMPLE);
+
+    if (comments.length === 0) {
+      this._logNoCommentsDiagnostic();
     }
-    
-    for (const element of commentElements) {
-      comments.push(element);
-    }
-    
+
     return comments;
+  }
+
+  /**
+   * One-shot diagnostic for the "no comment elements" case.
+   *
+   * Reports what the page actually contains so the cause can be read off a real
+   * browser console instead of guessed at. Runs at most once per page load, and only
+   * when nothing was found, so it cannot spam the console.
+   */
+  _logNoCommentsDiagnostic() {
+    if (YouTubeSiteAdapter._diagnosticLogged) return;
+    YouTubeSiteAdapter._diagnosticLogged = true;
+
+    const counts = {};
+    for (const selector of this.getCommentSelectors()) {
+      try {
+        counts[selector] = document.querySelectorAll(selector).length;
+      } catch (_) {
+        counts[selector] = 'invalid selector';
+      }
+    }
+
+    let containerInfo = 'no comments container found';
+    try {
+      const container = document.querySelector('#comments') ||
+        document.querySelector('ytd-comments') ||
+        document.querySelector('ytd-item-section-renderer');
+      if (container) {
+        const all = container.querySelectorAll('*');
+        const tags = [];
+        for (let i = 0; i < all.length && tags.length < 30; i++) {
+          const tag = all[i].tagName.toLowerCase();
+          if (tags.indexOf(tag) === -1) tags.push(tag);
+        }
+        containerInfo = 'container=' + container.tagName.toLowerCase() +
+          ' descendants=' + all.length +
+          ' tags=' + tags.join(',');
+      }
+    } catch (_) {
+      containerInfo = 'container lookup failed';
+    }
+
+    console.warn(
+      '[YouTube Auto Reply] DIAGNOSTIC: no comment elements matched. ' +
+      'selectorCounts=' + JSON.stringify(counts) + ' | ' + containerInfo
+    );
   }
 
   /**
@@ -375,6 +461,10 @@ YouTubeSiteAdapter.SELECTORS = {
   // Primary selector for comment threads (most common)
   COMMENT_THREAD: 'ytd-comment-thread-renderer',
 
+  // The inner renderer that holds the author and body. Present whenever a comment
+  // exists, so it is the safe second choice if threads are wrapped unexpectedly.
+  COMMENT_RENDERER: 'ytd-comment-renderer',
+
   // Alternative selectors if primary fails
   COMMENT_LEGACY: '#comment',
   COMMENT_SIMPLE: '.ytd-comment',
@@ -414,6 +504,10 @@ YouTubeSiteAdapter._fallbackIds = new WeakMap();
 
 // Counter to generate unique fallback IDs (incremented once per new element).
 YouTubeSiteAdapter._fallbackCounter = 0;
+
+// Guards the one-shot "no comments found" diagnostic so it can only log once per
+// page load, and only when detection genuinely came up empty.
+YouTubeSiteAdapter._diagnosticLogged = false;
 
 // Export as globalThis so content.js can use it without ES modules
 if (typeof window !== 'undefined') {
