@@ -40,6 +40,10 @@
   
   <div id="test-output"></div>
   
+  <!-- The content-script copy of the normalizer, so Case 5h can prove the two
+       hand-maintained files have not drifted apart. -->
+  <script src="../../../content/arabic-normalizer-global.js"></script>
+
   <script type="module">
     import runAllTests from './test-runner.js';
     

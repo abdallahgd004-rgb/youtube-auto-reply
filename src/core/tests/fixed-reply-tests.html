@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fixed Reply Tests - YouTube Auto Reply</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .summary {
+      background: #e3f2fd;
+      padding: 16px;
+      border-radius: 4px;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+    .summary.passed { background: #e8f5e9; }
+    .summary.failed { background: #ffebee; }
+    #trigger-error { display: none; }
+    /* The form markup below is the Options page's Create Trigger form, reduced to the
+         controls these tests drive. options.js init() reads several of them on load, so
+         they all have to exist. */
+    #triggers-list { min-height: 1px; }
+  </style>
+</head>
+<body>
+  <h1>Fixed Reply Tests</h1>
+  <p>YouTube Auto Reply Extension — fixed reply mode for triggers</p>
+
+  <!-- Create Trigger form, same ids as options.html. The reply-type radios and the
+       fixed-reply textarea are what this suite drives; the rest keeps options.js's
+       init() path quiet. -->
+  <input id="baseUrl" type="text">
+  <select id="model"></select>
+  <select id="response-style">
+    <option value="friendly">Friendly</option>
+    <option value="professional">Professional</option>
+    <option value="short">Short</option>
+  </select>
+  <input id="static-context" type="text">
+
+  <input id="trigger-phrase" type="text">
+  <select id="trigger-match-mode">
+    <option value="contains" selected>Contains</option>
+    <option value="exact">Exact</option>
+  </select>
+
+  <input type="radio" name="trigger-reply-mode" id="trigger-reply-mode-ai" value="ai" checked>
+  <input type="radio" name="trigger-reply-mode" id="trigger-reply-mode-fixed" value="fixed">
+  <div id="trigger-fixed-reply-row" style="display: none;">
+    <textarea id="trigger-fixed-reply"></textarea>
+  </div>
+
+  <input type="checkbox" id="trigger-enabled" checked>
+  <input type="checkbox" id="trigger-case-sensitive">
+  <button id="add-trigger-btn" type="button"></button>
+  <div id="trigger-error"></div>
+  <div id="triggers-list"></div>
+
+  <div id="model-error"></div>
+  <div id="message"></div>
+
+  <div id="test-output"></div>
+
+  <script type="module">
+    // Import order matters: the stub installs `chrome` before storage.js evaluates.
+    import { resetStorage } from './chrome-storage-stub.js';
+    import runAllTests from './fixed-reply-tests.js';
+
+    // options.js registers its own DOMContentLoaded handler on import. Let that first
+    // render finish before the tests take over the form, so the two never race over the
+    // same controls.
+    //
+    // setTimeout rather than requestAnimationFrame: a headless/background browser can
+    // leave rAF unfired, and the whole suite then hangs before printing anything.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    resetStorage();
+
+    const output = document.getElementById('test-output');
+    const results = await runAllTests();
+
+    const summary = document.createElement('div');
+    summary.className = 'summary ' + (results.failed === 0 ? 'passed' : 'failed');
+    summary.innerHTML = `
+      <strong>Test Summary</strong><br>
+      Total: ${results.total}<br>
+      Passed: ${results.passed}<br>
+      Failed: ${results.failed}
+    `;
+
+    output.appendChild(summary);
+
+    // Machine-readable result for any headless runner, which cannot read the console.
+    window.__TEST_RESULTS__ = results;
+  </script>
+</body>
+</html>

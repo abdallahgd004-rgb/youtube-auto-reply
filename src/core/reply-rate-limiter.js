@@ -1,4 +1,5 @@
 // Phase 10.5 — Reply Rate Limiter
+import { logError } from './debug.js';
 
 /**
  * Storage key for the rolling window of recent reply timestamps.
@@ -24,7 +25,7 @@ async function readTimestamps() {
     if (!Array.isArray(raw)) return [];
     return raw.filter((t) => typeof t === 'number' && Number.isFinite(t));
   } catch (error) {
-    console.error('[YouTube Auto Reply] rate limiter read error:', error.message);
+    logError('rate limiter read error:', error.message);
     return [];
   }
 }
@@ -38,7 +39,7 @@ async function writeTimestamps(timestamps) {
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: timestamps });
   } catch (error) {
-    console.error('[YouTube Auto Reply] rate limiter write error:', error.message);
+    logError('rate limiter write error:', error.message);
   }
 }
 

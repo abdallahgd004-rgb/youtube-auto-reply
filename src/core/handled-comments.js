@@ -1,4 +1,5 @@
 // Phase 9.2 + 9.3 + 9.4 — Handled-Comment Store
+import { logError } from './debug.js';
 
 /**
  * Storage key for handled-comment records.
@@ -38,7 +39,7 @@ async function _readRecords() {
     }
     return {};
   } catch (err) {
-    console.error('[YouTube Auto Reply] handled-comments read error:', err);
+    logError('handled-comments read error:', err);
     return {};
   }
 }
@@ -51,7 +52,7 @@ async function _writeRecords(records) {
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: records });
   } catch (err) {
-    console.error('[YouTube Auto Reply] handled-comments write error:', err);
+    logError('handled-comments write error:', err);
     // Silently resolve — a storage failure must NEVER disable replying.
   }
 }

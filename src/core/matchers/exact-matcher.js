@@ -2,7 +2,8 @@
  * Exact Matcher - Phase 4.3
  * 
  * Determines whether a YouTube comment text exactly equals one of the trigger phrases.
- * No normalization beyond case handling is performed.
+ * Case handling plus Phase 4.4 Arabic normalization (diacritics, Alef variants,
+ * whitespace, punctuation) are applied to BOTH sides before comparison.
  * 
  * @param {string} text - The comment text to search
  * @param {string[]} phrases - Array of trigger phrases to match against

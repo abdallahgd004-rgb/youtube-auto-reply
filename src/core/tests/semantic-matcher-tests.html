@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Auto Reply Extension — Semantic Trigger Matching</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; background: #fbfbfc; color: #1c1c1e; }
+    h1 { font-size: 18px; font-weight: 600; }
+    p.sub { color: #6b6b70; font-size: 13px; margin-top: 4px; }
+    #test-output { margin-top: 16px; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+    .summary { margin-top: 16px; padding: 10px 12px; border-radius: 8px; font-weight: 600; }
+    .summary.passed { background: #e8f5ec; color: #1a6b34; }
+    .summary.failed { background: #fdecec; color: #a02020; }
+  </style>
+</head>
+<body>
+  <h1>Semantic Trigger Matching Tests</h1>
+  <p class="sub">LM Studio decides whether a comment matches a trigger — classification only, never a reply, never a false match.</p>
+  <div id="test-output"></div>
+
+  <script type="module">
+    import runAllTests from './semantic-matcher-tests.js';
+
+    const output = document.getElementById('test-output');
+    const results = await runAllTests();
+
+    const summary = document.createElement('div');
+    summary.className = 'summary ' + (results.failed === 0 ? 'passed' : 'failed');
+    summary.innerHTML = `
+      Test Summary
+      Total: ${results.total}
+      Passed: ${results.passed}
+      Failed: ${results.failed}
+    `;
+    output.appendChild(summary);
+  </script>
+</body>
+</html>

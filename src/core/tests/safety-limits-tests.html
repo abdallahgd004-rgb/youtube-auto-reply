@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Safety &amp; Limits Tests - YouTube Auto Reply</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 860px;
+      margin: 40px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .summary {
+      background: #e3f2fd;
+      padding: 16px;
+      border-radius: 4px;
+      margin-top: 20px;
+      font-size: 14px;
+    }
+    .summary.passed { background: #e8f5e9; }
+    .summary.failed { background: #ffebee; }
+    /* options.js toggles these by inline style; neutralise the default so an
+       empty box does not look like an error before the tests start. */
+    #model-error, #message, #trigger-error, #safety-error, #template-error { display: none; }
+  </style>
+</head>
+<body>
+  <h1>Safety &amp; Limits Tests</h1>
+  <p>YouTube Auto Reply Extension — Phase 16.3 (risky settings require confirmation)</p>
+
+  <!-- The subset of the Options page that Phase 16.3 reads and writes. options.js
+       guards every other element with `if (el)`, so they are omitted here. -->
+  <input id="baseUrl" type="text">
+  <select id="model"></select>
+  <select id="response-style">
+    <option value="friendly">Friendly</option>
+    <option value="professional">Professional</option>
+    <option value="short">Short</option>
+  </select>
+  <input id="static-context" type="text">
+  <div id="model-error"></div>
+  <div id="message"></div>
+  <div id="triggers-list"></div>
+
+  <textarea id="reply-blacklist"></textarea>
+
+  <!-- Context templates (Phase 19.5) -->
+  <input id="template-name" type="text">
+  <textarea id="template-body"></textarea>
+  <div id="template-error"></div>
+  <div id="templates-list"></div>
+
+  <!-- Safety & limits -->
+  <input id="dry-run" type="checkbox" checked>
+  <input id="max-replies-per-hour" type="number">
+  <input id="reply-delay-min" type="number">
+  <input id="reply-delay-max" type="number">
+  <input id="debug-mode" type="checkbox">
+  <div id="safety-error"></div>
+  <div id="confirm-panel" hidden>
+    <h3 id="confirm-title"></h3>
+    <p id="confirm-body"></p>
+    <button type="button" id="confirm-cancel">Cancel</button>
+    <button type="button" id="confirm-accept">Confirm</button>
+  </div>
+
+  <div id="test-output"></div>
+
+  <script type="module">
+    // Import order matters: the stub installs `chrome` before storage.js evaluates.
+    import { resetStorage } from './chrome-storage-stub.js';
+    import runAllTests from './safety-limits-tests.js';
+
+    // options.js registers its own DOMContentLoaded handler on import. Let that
+    // first render finish before the tests take over the form.
+    await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    resetStorage();
+
+    const output = document.getElementById('test-output');
+    const results = await runAllTests();
+
+    const summary = document.createElement('div');
+    summary.className = 'summary ' + (results.failed === 0 ? 'passed' : 'failed');
+    summary.innerHTML = `
+      <strong>Test Summary</strong><br>
+      Total: ${results.total}<br>
+      Passed: ${results.passed}<br>
+      Failed: ${results.failed}
+    `;
+
+    output.appendChild(summary);
+  </script>
+</body>
+</html>

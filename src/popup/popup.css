@@ -1,52 +1,674 @@
-/* Popup Styles - YouTube Auto Reply Extension */
+/* ============================================================================
+   Control panel — YouTube Auto Reply
+
+   This document is rendered as a Chrome SIDE PANEL (see manifest
+   `side_panel.default_path`), not as the transient action popup. It used to be
+   an action popup, which Chrome closes the instant focus moves to the page —
+   useless for watching a run while working on YouTube. The same markup, CSS
+   and JS now live in a panel that stays open; nothing here was redesigned for
+   the move, only made to fill a resizable container.
+
+   Same identity as the Options page: YouTube red on a warm off-white ground,
+   white cards, one maroon-to-red masthead that reports the run state. Tokens
+   here are duplicated rather than shared, because the panel is its own
+   document and cannot reach the options stylesheet.
+
+   Two rules the layout still obeys:
+
+     1. Red is the brand, not a verdict. Green appears only when something is
+        actually connected; amber only when work is genuinely waiting.
+     2. Quoted human text keeps its own direction and a slightly larger size,
+        because it is speech rather than machine state.
+   ========================================================================== */
+
+/* --- tokens ---------------------------------------------------------------- */
+:root {
+  --red-50:  #FFF2F3;
+  --red-100: #FFE1E4;
+  --red-200: #FFC7CD;
+  --red-400: #FF4D5A;
+  --red-500: #F0323F;
+  --red-600: #D81E31;
+  --red-700: #B31226;
+  --wine-800:#5C0B15;
+  --wine-900:#3D070E;
+
+  --bg:       #FDF8F7;
+  --surface:  #FFFFFF;
+  --surface-2:#FFF8F9;
+  --ink:      #1B1114;
+  --ink-2:    #4A3B40;
+  --ink-3:    #7C6B71;
+  --rule:     #F5E5E8;
+  --rule-2:   #EDD6DA;
+
+  --green:    #0B6B4A;
+  --green-bg: #EAF7F1;
+  --amber:    #9A6B14;
+
+  --sh-1: 0 1px 2px rgba(61, 7, 14, .04), 0 6px 16px rgba(61, 7, 14, .05);
+  --sh-red: 0 6px 16px rgba(216, 30, 49, .28);
+
+  --r-card: 18px;
+  --r-btn:  12px;
+
+  --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI',
+          Roboto, 'Noto Sans Arabic', 'Helvetica Neue', Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
 body {
   margin: 0;
-  padding: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-  background-color: #f9f9f9;
-}
-
-.container {
-  text-align: center;
-}
-
-h1 {
-  margin: 0 0 15px 0;
-  font-size: 24px;
-  color: #333;
-}
-
-#status-display {
-  margin: 8px 0;
-  font-size: 16px;
-  color: #666;
-}
-
-button {
-  padding: 10px 20px;
-  background-color: #0066cc;
-  color: white;
-  border: none;
-  border-radius: 4px;
+  /* A Side Panel is resizable by the user and is typically narrower than the old
+     360px popup, so the sheet fills whatever width it is given instead of fixing
+     one. min-width keeps the tallies from crushing before the user drags wider. */
+  width: 100%;
+  min-width: 300px;
+  font-family: var(--sans);
   font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(420px 220px at 88% -12%, rgba(255, 77, 90, .14), transparent 62%),
+    var(--bg);
+}
+
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.ic {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sheet { padding: 16px; }
+
+/* --- masthead -------------------------------------------------------------- */
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-card);
+  background: linear-gradient(140deg, var(--wine-800), var(--wine-900));
+  box-shadow: var(--sh-1);
+  transition: background 220ms ease;
+}
+
+/* Live is the only state that earns the brand red. */
+.sheet[data-running="true"] .masthead {
+  background: linear-gradient(140deg, var(--red-500), var(--red-700));
+  box-shadow: var(--sh-red);
+}
+
+.brand { display: flex; align-items: center; gap: 11px; min-width: 0; }
+
+.brand-mark {
+  position: relative;
+  flex: none;
+  width: 38px;
+  height: 28px;
+  border-radius: 9px;
+  background: linear-gradient(155deg, #FF6A73, #E5162A 68%, #A5121F);
+  box-shadow: inset 0 1.5px 0 rgba(255, 255, 255, .55), 0 6px 14px rgba(0, 0, 0, .3);
+}
+
+.brand-mark::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 8px;
+  border-left: 13px solid #fff;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  line-height: 1.2;
+  color: #fff;
+}
+
+.state-line {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, .72);
+}
+
+/* "Running" and "Stopped" are both short words, so the swatch does the work. */
+.state-line::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .40);
+  vertical-align: 1px;
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+
+.sheet[data-running="true"] .state-line::before {
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .22);
+}
+
+/* --- buttons --------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 13px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-btn);
   cursor: pointer;
-  transition: background-color 0.2s;
+  white-space: nowrap;
+  transition: transform 140ms ease, box-shadow 140ms ease,
+              background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
-button:hover {
-  background-color: #0052a3;
+.btn:hover { transform: translateY(-1px); box-shadow: var(--sh-1); }
+.btn:active { transform: translateY(0); }
+
+.btn-switch {
+  color: var(--wine-900);
+  background: #fff;
+  border-color: #fff;
 }
 
-#settings-btn {
-  background-color: #666;
+.sheet[data-running="true"] .btn-switch {
+  color: var(--red-700);
+  background: #fff;
+  border-color: #fff;
+  box-shadow: 0 4px 14px rgba(61, 7, 14, .22);
 }
 
-#settings-btn:hover {
-  background-color: #555;
+/* --- per-feature switches ---------------------------------------------------- */
+/*
+  Quieter than the master switch on purpose. `toggle-btn` is the one control that stops the
+  whole machine, and it should look like it. This one only changes which comments are skipped,
+  so it sits in the header's row but at a lower weight — full width, no shadow, no lift.
+*/
+/* The sheet's own 16px, hardcoded to match `.sheet` — this stylesheet has no `--pad`
+   token, and inventing one for a single use would be a second source of truth for a value
+   that already exists two rules above. */
+.feature-switch {
+  padding: 0 0 12px;
 }
 
+.btn-feature {
+  width: 100%;
+  justify-content: flex-start;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: transparent;
+  border-color: var(--rule-2);
+}
+
+.btn-feature:hover { transform: none; box-shadow: none; }
+
+.btn-feature .ic { color: var(--ink-3); transition: color 140ms ease; }
+
+/* ON — the filter is doing its job, so the heart takes the accent colour. */
+.btn-feature[data-on="true"] { color: var(--red-700); border-color: var(--rule-2); }
+.btn-feature[data-on="true"] .ic { color: var(--red-500); }
+
+/* OFF — visibly de-emphasised rather than merely differently worded, because "answered"
+   is a surprising thing to read on a channel whose hearts are being respected. */
+.btn-feature[data-on="false"] { color: var(--ink-3); }
+.btn-feature[data-on="false"] .ic { color: var(--ink-3); opacity: .55; }
+
+/* --- the record (the one loud element) ------------------------------------- */
+.record { margin-top: 16px; }
+
+.label {
+  margin: 0 0 8px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.quote {
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  border-left: 3px solid var(--red-500);
+  box-shadow: var(--sh-1);
+}
+
+.quote-body {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--ink);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* Empty state: English chrome, not a person speaking, so it drops back to the
+   sans face and sits left-aligned. A first-run popup should not pretend to
+   contain Arabic it does not have. */
+.quote[data-empty="true"] {
+  background: var(--surface-2);
+  border-left-color: var(--red-200);
+  box-shadow: none;
+}
+
+.quote[data-empty="true"] .quote-body {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+  text-align: left;
+  direction: ltr;
+}
+
+/* With nothing to attribute, the provenance footer is just an empty rule. */
+.quote[data-empty="true"] .quote-foot { display: none; }
+
+.quote-foot {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.cue { font-size: 11px; color: var(--ink-3); }
+
+.quote-src {
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* --- processing status ------------------------------------------------------
+   Five counters, so they are laid out as a grid of equal cells instead of five
+   ledger rows: the numbers line up on one baseline and can be read as a block.
+   The stage gets its own line because it is a phrase, not a quantity. */
+.processing { margin-top: 14px; }
+
+.processing-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+
+.processing-head .label {
+  margin: 0;
+}
+
+.btn-reset {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.btn-reset:hover {
+  color: var(--ink);
+  border-color: var(--rule-2);
+  background: var(--surface-2);
+}
+
+.btn-reset:active {
+  transform: translateY(1px);
+}
+
+.tallies {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  padding: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+
+.tally {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 9px 10px;
+  background: var(--surface);
+}
+
+/* Five cells in three columns leaves one slot over on the second row. Letting the
+   last cell take both keeps the grid a filled rectangle instead of a hole. */
+.tally:last-child { grid-column: span 2; }
+
+.tally-value {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally-key {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+/* Only a real failure earns colour; the counters stay ink so the block does not
+   turn into confetti. */
+.tally-value.is-failed { color: var(--red-700); }
+
+/* Phase 20.18 — the Knowledge block's caption and skip-reason list.
+   A caption rather than a second <h2> because these are a continuation of the run
+   totals above, not a new section: the user reads both blocks as one answer to
+   "what happened to my comments". */
+.tallies-caption {
+  margin: 10px 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Rendered from textContent only — never innerHTML — so a label arriving from the
+   worker cannot inject markup. */
+/*
+ * The `hidden` ATTRIBUTE must beat any `display` this sheet declares.
+ *
+ * The browser's `[hidden] { display: none }` rule is weaker than any author rule, so a
+ * `.skip-reasons { display: … }` silently defeats it — which is why the list below also
+ * carries an explicit `.skip-reasons[hidden]` rule. That scoped rule is a symptom; this is
+ * the fix, and it removes the need to remember one per element. Phase 20.23's screenshot
+ * showed the same defect in the Options page, where `.btn { display: inline-flex }` beat it.
+ */
+[hidden] { display: none !important; }
+
+.skip-reasons {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.skip-reasons[hidden] { display: none; }
+
+/* ── Phase 22.1: why the last decline happened ───────────────────────────────
+ * Deliberately left-aligned LTR even when the comment above it is RTL: the reason is
+ * English model prose in this codebase, and an RTL box puts it in the wrong place.
+ */
+.kb-decline {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--r-card);
+  background: var(--surface-2);
+}
+.kb-decline-comment {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.kb-decline-reason {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+/* The filenames are the actionable part — "the right file never came back" is the whole
+ * question — so they get the strongest ink on the block. */
+.kb-decline-files {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  word-break: break-word;
+}
+/* The dropped-section warning is the one line on the block that says the user's Markdown may
+ * be fine and the pipeline is what lost the answer — so it is the one that must not read as
+ * ordinary supporting text. */
+.kb-decline-dropped {
+  margin-top: 4px;
+  color: var(--amber);
+}
+
+/* The shortlist the reranker rejected. A section over the gate's 600-character ceiling is
+ * the one that explains a price the user can SEE in their file never reaching the check. */
+.kb-decline-list {
+  margin: 4px 0 0;
+  padding-inline-start: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  word-break: break-word;
+}
+.kb-decline-list .is-oversized {
+  color: var(--amber);
+}
+
+/* ── Phase 22: the follow-up board ────────────────────────────────────────────
+ * Rows stack rather than sit on one flex line like the skip reasons above: a viewer
+ * comment, the creator's own reply and three buttons do not fit on one row, and a row
+ * that wrapped mid-sentence would make the reply being offered ambiguous. */
+.followup-item {
+  display: block;
+  padding: 10px 12px;
+  border-top: 1px solid var(--rule);
+}
+.followup-item:first-child { border-top: 0; }
+
+.followup-body {
+  display: block;
+  margin-bottom: 8px;
+}
+/* The creator's existing reply, shown so the offer is visibly a follow-up and not a
+ * duplicate. Lighter and inset: it is context for the comment above it, not the subject. */
+.followup-mine {
+  margin-top: 6px;
+  padding-inline-start: 10px;
+  border-inline-start: 2px solid var(--rule);
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.followup-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.followup-controls .btn {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.skip-reasons li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ink-2);
+  background: var(--surface);
+}
+.skip-reasons li + li { border-top: 1px solid var(--rule); }
+.skip-reason-count {
+  flex: none;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+/* A reason that means "the base could not answer" is not a fault; a reason that means
+   "we could not tell" is. Tinting only the latter keeps a healthy base from reading as
+   broken — the distinction AGENTS.md requires, made visible rather than described. */
+.skip-reasons li.is-fault .skip-reason-count { color: var(--red-700); }
+
+.stage {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 9px 12px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+}
+
+.stage-key {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.stage-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: right;
+}
+
+/* The stage line is the one place that reports an actual state change, so it is the
+   only place allowed to tint — and only for a real fault or a finished run. */
+.processing[data-stage="error"] .stage-value { color: var(--red-700); }
+.processing[data-stage="completed"] .stage-value { color: var(--green); }
+.processing[data-stage="idle"] .stage-value { color: var(--ink-3); }
+
+/* --- ledger ---------------------------------------------------------------- */
+.ledger {
+  margin-top: 14px;
+  padding: 4px 16px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-1);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.row:last-child { border-bottom: 0; }
+
+.row-key {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--ink-2);
+  min-width: 0;
+}
+
+.row-ic { color: var(--red-500); }
+
+.detail-value {
+  font-size: 13.5px;
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour only where the state has a consequence: connected, work waiting,
+   or a fault. The counters stay ink so the panel does not turn into confetti. */
+.detail-value.pending      { color: var(--amber); }
+.detail-value.connected    { color: var(--green); }
+.detail-value.disconnected { color: var(--red-700); }
+.detail-value.unknown      { color: var(--ink-3); font-weight: 500; }
+
+/* Posting mode reads as a gate: amber while replies are held back, red once they
+   really go out. */
+.detail-value.dry { color: var(--amber); }
+.detail-value.live { color: var(--red-700); }
+
+.hint {
+  margin: 0 0 10px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--red-700);
+  background: #FDEEEF;
+  border: 1px solid var(--red-200);
+  border-radius: 10px;
+}
+
+/* --- errors and foot ------------------------------------------------------- */
 .error-message {
-  color: #d32f2f;
-  font-size: 14px;
-  margin-top: 8px;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--red-700);
+  background: #FDEEEF;
+  border: 1px solid var(--red-200);
+  border-radius: 10px;
+}
+
+.foot { margin-top: 12px; }
+
+.btn-quiet {
+  width: 100%;
+  color: var(--red-700);
+  background: var(--red-50);
+  border-color: var(--red-100);
+}
+
+.btn-quiet:hover {
+  color: var(--red-700);
+  background: var(--red-100);
+  border-color: var(--red-200);
+}
+
+/* --- focus ----------------------------------------------------------------- */
+:focus-visible { outline: 2px solid var(--red-500); outline-offset: 2px; }
+
+/* --- motion ---------------------------------------------------------------- */
+/* Motion only ever confirms something the person just did, so there is nothing
+   to animate on load. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }

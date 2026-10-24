@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Options Smoke Tests - YouTube Auto Reply</title>
+  <!--
+    The REAL stylesheet, so a computed-style assertion is a real one. Phase 20.23's
+    screenshot showed the Knowledge Base's "Cancel edit" button visible despite the `hidden`
+    attribute, because `.btn { display: inline-flex }` beats the UA's `[hidden]` rule — and
+    the test missed it by asserting `element.hidden` instead of what the user can see.
+  -->
+  <link rel="stylesheet" href="../../options/options.css">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 { color: #333; }
+    .summary { background: #e3f2fd; padding: 16px; border-radius: 4px; margin-top: 20px; font-size: 14px; }
+    .summary.passed { background: #e8f5e9; }
+    .summary.failed { background: #ffebee; }
+  </style>
+</head>
+<body>
+  <h1>Options Smoke Tests</h1>
+  <p>
+    YouTube Auto Reply Extension &mdash; the real Options page, with the real markup and the
+    real <code>options.js</code>
+  </p>
+
+  <!--
+    The sandbox the Options row is rendered into. It must NOT be `document.body`: replacing
+    the body's innerHTML destroys the running script's own #test-output element, so the
+    summary is appended to a detached node and the runner reports the suite as UNREADABLE
+    with no explanation. Injecting here leaves the harness intact.
+  -->
+  <div id="harness-sandbox"></div>
+
+  <div id="test-output"></div>
+
+  <script type="module">
+    import runAllTests from './options-smoke-tests.js';
+
+    const output = document.getElementById('test-output');
+
+    // A suite that throws before publishing results is reported as UNREADABLE with no
+    // reason at all, which is the worst possible failure mode for a debugging harness.
+    let results;
+    try {
+      results = await runAllTests();
+    } catch (error) {
+      results = { total: 1, passed: 0, failed: 1, error: String(error && error.stack || error) };
+    }
+
+
+    const summary = document.createElement('div');
+    summary.className = 'summary ' + (results.failed === 0 ? 'passed' : 'failed');
+    summary.innerHTML = `
+      <strong>Test Summary</strong><br>
+      Total: ${results.total}<br>
+      Passed: ${results.passed}<br>
+      Failed: ${results.failed}
+      ${results.error ? `<pre>${String(results.error).replace(/</g, '&lt;')}</pre>` : ''}
+      ${(results.failures || []).map((f) => `<li>${f}</li>`).join('')}
+    `;
+
+    output.appendChild(summary);
+  </script>
+</body>
+</html>

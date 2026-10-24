@@ -10,8 +10,8 @@
 
 set -uo pipefail
 
-RELAY="$HOME/.agents/skills/pi-delegate/scripts/relay.mjs"
-REPO="/Users/saleh/Documents/abdallah/google extention"
+RELAY="${PI_RELAY:-$HOME/.agents/skills/pi-delegate/scripts/relay.mjs}"
+REPO="${REPO_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
 MODEL="${PI_MODEL:-qwen3.6-35b-a3b}"
 PROVIDER="lmstudio"
 MAX_ATTEMPTS="${PI_MAX_ATTEMPTS:-4}"

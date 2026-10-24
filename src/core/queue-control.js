@@ -1,4 +1,5 @@
 // Phase 10.6 — Queue Pause / Resume Control
+import { logError } from './debug.js';
 
 /**
  * Storage key holding the user's pause flag.
@@ -28,7 +29,7 @@ export async function isQueuePaused() {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     return !!(result && result[STORAGE_KEY] === true);
   } catch (error) {
-    console.error('[YouTube Auto Reply] queue pause read error:', error.message);
+    logError('queue pause read error:', error.message);
     return false;
   }
 }
@@ -47,7 +48,7 @@ export async function setQueuePaused(paused) {
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: value });
   } catch (error) {
-    console.error('[YouTube Auto Reply] queue pause write error:', error.message);
+    logError('queue pause write error:', error.message);
   }
   return value;
 }

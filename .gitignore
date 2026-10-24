@@ -1,6 +1,29 @@
 # macOS
 .DS_Store
+.AppleDouble
+.LSOverride
 
-# Editor / OS noise
+# Editor / IDE noise
 *.swp
+*.swo
+*~
 Thumbs.db
+.vscode/
+.idea/
+
+# Build output (scripts/package.sh)
+dist/
+
+# Private Knowledge Base & Backups (Keep private database off GitHub)
+knowledge/
+knowledge-*/
+knowledge-backup*/
+*.backup*
+fix-price-headings.py
+
+# Local scratch / debug scripts for private data
+scripts/benchmark-knowledge.mjs
+scripts/check-knowledge.mjs
+scripts/debug-*.mjs
+scripts/test-shortlist.mjs
+

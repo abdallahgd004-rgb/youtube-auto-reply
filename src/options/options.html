@@ -7,85 +7,717 @@
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
-  <div class="container">
-    <h1>YouTube Auto Reply Settings</h1>
-    
-    <form id="settings-form">
-      <div class="setting-group">
-        <label for="baseUrl">Base URL</label>
-        <input type="text" id="baseUrl" name="baseUrl" placeholder="http://localhost:1234/v1">
-      </div>
 
-      <div class="setting-group">
-        <label for="model">Model</label>
-        <select id="model" name="model">
-          <option value="">Select a model</option>
-        </select>
-      </div>
+<!-- ── icon sprite ──────────────────────────────────────────────────────────
+     One inline <symbol> per glyph so the markup stays readable. Inheritable
+     stroke properties are set on .ic in options.css and cascade into the
+     shadow tree, which is why no symbol repeats them. -->
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h8M17 6h3M4 12h3M12 12h8M4 18h8M17 18h3"/><circle cx="14.5" cy="6" r="2.3"/><circle cx="9.5" cy="12" r="2.3"/><circle cx="14.5" cy="18" r="2.3"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.4 9.4a2.6 2.6 0 1 1 3.6 2.4c-.7.4-1 .9-1 1.7M12 16.9h.01"/></symbol>
+  <symbol id="i-cube" viewBox="0 0 24 24"><path d="M12 2.8l8.4 4.6v9.2L12 21.2l-8.4-4.6V7.4z"/><path d="M12 12l8.4-4.6M12 12v9.2M12 12L3.6 7.4"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.6"/><path d="M10 3v2.2M14 3v2.2M10 18.8V21M14 18.8V21M3 10h2.2M3 14h2.2M18.8 10H21M18.8 14H21"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.2 13.4a4.6 4.6 0 0 0 6.6.4l2.2-2.2a4.6 4.6 0 0 0-6.5-6.5l-1.3 1.2"/><path d="M13.8 10.6a4.6 4.6 0 0 0-6.6-.4L5 12.4a4.6 4.6 0 0 0 6.5 6.5l1.2-1.2"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.7 11.9c0 3.9-3.9 7.1-8.7 7.1-1 0-2-.15-2.9-.43L4.3 20.6l1.4-3.7a6.8 6.8 0 0 1-2.1-5c0-3.9 3.9-7.1 8.7-7.1s8.4 3.2 8.4 7.1z"/></symbol>
+  <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M10.6 3.2l1.6 4.2 4.2 1.6-4.2 1.6-1.6 4.2L9 10.6 4.8 9l4.2-1.6z"/><path d="M17.8 14.6l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7.5A2.5 2.5 0 0 0 5 5.5v13A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5V8z"/><path d="M14 3v5h5M8.8 13h6.4M8.8 16.8h4.2"/></symbol>
+  <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4.5 9.2h15M4.5 14.8h15M10.4 4l-2.2 16M15.8 4l-2.2 16"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.2V12l3.2 2"/></symbol>
+  <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3.2l8.6 4.6-8.6 4.6-8.6-4.6z"/><path d="M3.4 12.6l8.6 4.6 8.6-4.6M3.4 16.9l8.6 4.6 8.6-4.6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.4v5.4M12 16.2h.01"/></symbol>
+  <!-- Phase 22: a reply arrow, for the follow-up switch. -->
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M10 5.5L4.5 11 10 16.5"/><path d="M4.9 11H14a5.2 5.2 0 0 1 5.2 5.2v.8"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3.8 12.4V6.2a2.4 2.4 0 0 1 2.4-2.4h6.2l7.8 7.8-8.6 8.6z"/><circle cx="8.4" cy="8.4" r="1.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M4.5 12.6l4.8 4.8L19.5 7.2"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.4l2.7 2.7L16.2 9.6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.6 4.9v14.2L19.4 12z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.3c-.4 0-.7-.13-1-.38C7.9 17.5 3.6 14 3.6 9.7A4.6 4.6 0 0 1 8.2 5.1c1.6 0 3 .74 3.8 2 .8-1.26 2.2-2 3.8-2a4.6 4.6 0 0 1 4.6 4.6c0 4.3-4.3 7.8-7.4 10.22-.3.25-.6.38-1 .38z"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9.4 17.4h5.2M10.2 20.4h3.6M12 3.4a5.6 5.6 0 0 1 3.5 10c-.5.4-.8 1-.8 1.6H9.3c0-.6-.3-1.2-.8-1.6A5.6 5.6 0 0 1 12 3.4z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.2l7.2 2.9v5.5c0 4.4-3 8.3-7.2 9.5-4.2-1.2-7.2-5.1-7.2-9.5V6.1z"/><path d="M9.2 12.1l2 2 3.6-3.9"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20l4.9-1.3L20 7.6a2.3 2.3 0 0 0 0-3.3l-.3-.3a2.3 2.3 0 0 0-3.3 0L5.3 15.1z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4.5 6.8h15M9.6 6.8V5.2a1.4 1.4 0 0 1 1.4-1.4h2a1.4 1.4 0 0 1 1.4 1.4v1.6M6.6 6.8l.9 12.1a1.9 1.9 0 0 0 1.9 1.7h5.2a1.9 1.9 0 0 0 1.9-1.7l.9-12.1M10.2 10.6v6M13.8 10.6v6"/></symbol>
+</defs></svg>
 
-      <button type="submit" id="save-btn">Save</button>
-    </form>
+<div class="app">
 
-    <div class="setting-group" style="margin-top: 16px;">
-      <label for="test-connection">Test Connection</label>
-      <button id="test-connection-btn">Test LM Studio Connection</button>
+  <!-- ── sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="dots" aria-hidden="true"><i></i><i></i><i></i></div>
+
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">YouTube<b>Auto Reply</b></span>
     </div>
 
-    <div class="setting-group" style="margin-top: 16px;">
-      <label>Chat Completion Test</label>
-      <button id="test-chat-completion-btn">Test Chat Completion</button>
+    <nav class="nav" aria-label="Sections">
+      <a class="nav-item is-active" href="#settings" data-nav><svg class="ic"><use href="#i-sliders"/></svg>Settings</a>
+      <a class="nav-item" href="#about" data-nav><svg class="ic"><use href="#i-info"/></svg>About</a>
+      <a class="nav-item" href="#help" data-nav><svg class="ic"><use href="#i-help"/></svg>Help</a>
+    </nav>
+
+    <!-- Decorative only. A CSS play button with faked extrusion, an orbit ring
+         and two chat bubbles, so no image assets are needed. -->
+    <div class="art" aria-hidden="true">
+      <div class="stage">
+        <span class="orbit"></span>
+        <span class="bubble bubble-dark"><i></i><i></i><i></i></span>
+        <span class="bubble bubble-light"><svg class="ic ic-fill"><use href="#i-heart"/></svg></span>
+        <span class="play3d"><span class="play3d-face"></span><span class="play3d-tri"></span></span>
+      </div>
     </div>
 
-    <div id="message" class="message"></div>
-    <div id="connection-result" class="hidden message"></div>
-    <div id="chat-result" class="message" style="display: none;"></div>
-    
-    <div id="model-error" class="error-message" style="display: none;"></div>
-    
-    <!-- Create Trigger Section -->
-    <div class="setting-group" style="margin-top: 24px; text-align: left;">
-      <h2 style="font-size: 18px; margin: 0 0 12px 0;">Create Trigger</h2>
-
-      <div class="setting-group">
-        <label for="trigger-phrase">Phrase(s)</label>
-        <input type="text" id="trigger-phrase" placeholder="بكام, السعر, منين أجيب">
-        <p style="font-size: 12px; color: #666; margin: 4px 0 0 0;">
-          Separate multiple phrases with commas.
-        </p>
-      </div>
-
-      <div class="setting-group">
-        <label for="trigger-match-mode">Match mode</label>
-        <select id="trigger-match-mode">
-          <option value="contains" selected>contains — comment contains the phrase</option>
-          <option value="exact">exact — comment equals the phrase</option>
-        </select>
-      </div>
-
-      <div class="setting-group">
-        <label style="display: inline-flex; align-items: center; gap: 6px; font-weight: normal;">
-          <input type="checkbox" id="trigger-enabled" checked>
-          <span>Enabled</span>
-        </label>
-      </div>
-
-      <div class="setting-group">
-        <label style="display: inline-flex; align-items: center; gap: 6px; font-weight: normal;">
-          <input type="checkbox" id="trigger-case-sensitive">
-          <span>Case sensitive</span>
-        </label>
-      </div>
-
-      <button type="button" id="add-trigger-btn">Add Trigger</button>
-      <div id="trigger-error" class="error-message" style="display: none;"></div>
+    <div class="sidebar-foot">
+      <p class="pitch">Save time.<br>Reply smarter.</p>
+      <p class="pitch-sub">Let AI handle your YouTube comments automatically.</p>
     </div>
+  </aside>
 
-    <!-- Trigger List Section -->
-    <div class="setting-group" style="margin-top: 24px; text-align: left;">
-      <h2 style="font-size: 18px; margin: 0 0 12px 0;">Triggers</h2>
-      <div id="triggers-list"></div>
+  <!-- ── content ──────────────────────────────────────────────────────────── -->
+  <main class="content">
+
+    <header class="page-head" id="settings">
+      <div class="page-head-text">
+        <h1 class="page-title">Settings</h1>
+        <p class="page-sub">Configure how the extension replies to YouTube comments.</p>
+      </div>
+      <button class="btn btn-ghost" type="button" id="header-test-btn">
+        <svg class="ic ic-fill"><use href="#i-heart"/></svg><span class="btn-label">Test Connection</span>
+      </button>
+    </header>
+
+    <div class="layout">
+      <div class="col">
+
+        <!-- Model: the two fields that must be right before anything else works. -->
+        <section class="card" aria-labelledby="h-model">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-cube"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-model">Model</h2>
+              <p class="card-sub">Choose the AI model and connection settings.</p>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <form id="settings-form" class="form">
+              <div class="row">
+                <label class="row-label" for="baseUrl"><svg class="ic"><use href="#i-link"/></svg>Base URL</label>
+                <div class="row-field">
+                  <input class="control" type="text" id="baseUrl" name="baseUrl"
+                         placeholder="http://localhost:1234/v1" spellcheck="false">
+                </div>
+              </div>
+
+              <div class="row">
+                <label class="row-label" for="model"><svg class="ic"><use href="#i-cpu"/></svg>Model</label>
+                <div class="row-field">
+                  <select class="control" id="model" name="model">
+                    <option value="">Select a model</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="row-field row-field-save">
+                  <button class="btn btn-primary" type="submit" id="save-btn">
+                    <svg class="ic"><use href="#i-check"/></svg><span class="btn-label">Save Changes</span>
+                  </button>
+                  <p class="hint">Saving keeps your other settings, including the system prompt.</p>
+                </div>
+              </div>
+            </form>
+
+            <div id="model-error" class="error-message" style="display: none;"></div>
+          </div>
+        </section>
+
+        <!-- Reply behavior -->
+        <section class="card" aria-labelledby="h-behavior">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-chat"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-behavior">Reply behavior</h2>
+              <p class="card-sub">Set the style and extra context for the replies.</p>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <div class="row">
+              <label class="row-label" for="reply-mode"><svg class="ic"><use href="#i-sparkle"/></svg>Reply mode</label>
+              <div class="row-field">
+                <select class="control" id="reply-mode" name="replyMode">
+                  <option value="trigger">Trigger — reply only when a trigger phrase matches</option>
+                  <option value="knowledge">Knowledge — answer from your Knowledge Base</option>
+                  <option value="hybrid">Hybrid — trigger first, Knowledge as fallback</option>
+                </select>
+                <p class="hint">
+                  Trigger needs no knowledge files. Knowledge and Hybrid answer factual questions
+                  from the Markdown files in your Knowledge Base, and skip anything they do not
+                  state.
+                </p>
+              </div>
+            </div>
+
+            <!--
+              Phase 21.1 — the folder itself. §4's premise is a TREE of Markdown files the user
+              already keeps, and until this existed the only way in was pasting each document
+              into the textarea above, one at a time.
+
+              The picker runs HERE and only here: `showDirectoryPicker()` does not exist in a
+              service worker and needs a user gesture regardless. The chosen handle is handed to
+              the worker, which does the reading — which is what lets the same sync run
+              unattended from an alarm.
+            -->
+            <div class="row">
+              <span class="row-label">
+                <svg class="ic"><use href="#i-sparkle"/></svg>Folder
+              </span>
+              <div class="row-field">
+                <div class="row-inline">
+                  <button type="button" class="btn btn-primary" id="kb-folder-pick">Choose folder…</button>
+                  <button type="button" class="btn" id="kb-folder-sync">Sync now</button>
+                  <button type="button" class="btn btn-ghost" id="kb-folder-forget" hidden>Forget folder</button>
+                </div>
+                <p class="hint" id="kb-folder-state" role="status">No folder linked.</p>
+                <p class="hint" id="kb-folder-result"></p>
+                <p class="hint">
+                  Every <code>.md</code> and <code>.markdown</code> file in the folder is imported,
+                  subfolders included, and the relative path becomes the document name. The folder
+                  is the source of truth: changes are pulled in, and a file deleted from it is
+                  removed from the Knowledge Base. Nothing is ever written back to your disk.
+                </p>
+              </div>
+            </div>
+
+            <!--
+              Phase 21.2 — split a source document into the knowledge tree.
+
+              Generation is REVIEWED BEFORE IT IS WRITTEN, and that is not a nicety: the
+              alternative is putting a local model's first attempt into the user's folder, and
+              a file on disk is the one thing here nobody can take back. The user sees the
+              proposed paths and bodies, drops what they do not want, and only then presses
+              Write.
+            -->
+            <div class="row">
+              <span class="row-label">
+                <svg class="ic"><use href="#i-sparkle"/></svg>Split a document
+              </span>
+              <div class="row-field">
+                <div class="row-field-pair">
+                  <label class="row-label" for="doc-instruction">Instruction to the model</label>
+                  <input
+                    class="control"
+                    id="doc-instruction"
+                    type="text"
+                    placeholder="Split into one file per subject, and keep the prices in a dedicated file"
+                    autocomplete="off"
+                  />
+                </div>
+                <label class="row-label" for="doc-source">Source document</label>
+                <textarea
+                  class="control"
+                  id="doc-source"
+                  rows="8"
+                  spellcheck="false"
+                  placeholder="Paste the document text here — a PDF converted to text, a DOCX, a manual, a price list."
+                ></textarea>
+                <div class="row-inline">
+                  <button type="button" class="btn btn-primary" id="doc-generate">Generate files</button>
+                  <button type="button" class="btn" id="doc-write" disabled>Write selected to folder</button>
+                </div>
+                <p class="hint" id="doc-status" role="status"></p>
+                <div id="doc-results" class="kb-list"></div>
+                <p class="hint">
+                  The model is given the folders that already exist in your linked folder and is
+                  asked to place each file in one of them. Figures that do not appear in your
+                  source are rejected rather than written. Nothing is written until you choose to.
+                </p>
+              </div>
+            </div>
+
+            <!--
+              Phase 20.20 — §4's "display indexing status" and "reload/re-index", which are
+              the two §4 requirements with a milestone to land in. Document management (add,
+              edit, remove, search) is NOT here and is still outstanding.
+            -->
+            <div class="row">
+              <label class="row-label" for="kb-reload">
+                <svg class="ic"><use href="#i-sparkle"/></svg>Knowledge Base
+              </label>
+              <div class="row-field">
+                <div class="row-inline">
+                  <button type="button" class="btn" id="kb-reload">Re-index now</button>
+                  <span class="hint" id="kb-status" role="status">Checking the index…</span>
+                </div>
+                <p class="hint" id="kb-detail">
+                  Re-indexing re-reads every knowledge file. You only need it if you believe
+                  the extension is answering from an older version of your files.
+                </p>
+              </div>
+            </div>
+
+            <!--
+              Phase 20.23 — §4's document management, which until now had no reachable surface
+              at all: the store's add/update/remove were called by nothing outside their own
+              tests, so the feature could not be operated by a person. Markdown is pasted,
+              never converted — §4 says "Do not make the user manually convert Markdown into a
+              special proprietary format".
+            -->
+            <div class="row">
+              <span class="row-label">
+                Documents <span class="opt" id="kb-counts"></span>
+              </span>
+              <div class="row-field">
+                <div id="kb-list" class="kb-list"></div>
+
+                <div class="row-field-pair">
+                  <label class="row-label" for="kb-filename">Filename</label>
+                  <input
+                    class="control"
+                    id="kb-filename"
+                    type="text"
+                    placeholder="books/chemistry.md"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                </div>
+                <textarea
+                  class="control"
+                  id="kb-content"
+                  rows="7"
+                  spellcheck="false"
+                  placeholder="# Chemistry&#10;&#10;## Price&#10;&#10;The current price is 350 EGP."
+                ></textarea>
+
+                <div class="row-inline">
+                  <button type="button" class="btn btn-primary" id="kb-save">Add file</button>
+                  <button type="button" class="btn btn-ghost" id="kb-cancel" hidden>Cancel edit</button>
+                  <span class="hint" id="kb-message" role="status"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="response-style"><svg class="ic"><use href="#i-sparkle"/></svg>Response style</label>
+              <div class="row-field">
+                <select class="control" id="response-style" name="responseStyle">
+                  <option value="friendly">Friendly — warm and encouraging</option>
+                  <option value="professional">Professional — formal and to the point</option>
+                  <option value="short">Short — a single sentence</option>
+                </select>
+              </div>
+            </div>
+
+
+            <div class="row">
+              <label class="row-label" for="ignore-hearted-comments">
+                <svg class="ic"><use href="#i-heart"/></svg>Comments you hearted
+              </label>
+              <div class="row-field">
+                <label class="check" for="ignore-hearted-comments">
+                  <input type="checkbox" id="ignore-hearted-comments" name="ignoreHeartedComments">
+                  <span>Do not reply to comments I have hearted</span>
+                </label>
+                <p class="hint hint-block">
+                  When you heart a comment you have already read it and singled that viewer out, so the
+                  extension stops there rather than replying a second time on a thread you are
+                  watching. The heart is read from the comment itself. Turn this off and hearted
+                  comments are treated exactly like any other comment.
+                </p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="ignore-creator-replied-comments">
+                <svg class="ic"><use href="#i-chat"/></svg>Comments you replied to
+              </label>
+              <div class="row-field">
+                <label class="check" for="ignore-creator-replied-comments">
+                  <input type="checkbox" id="ignore-creator-replied-comments" name="ignoreCreatorRepliedComments">
+                  <span>Do not reply to comments I have already replied to</span>
+                </label>
+                <p class="hint hint-block">
+                  When a comment thread already has a reply from the channel owner, the extension skips it
+                  without sending it to the model or drafting another reply.
+                </p>
+              </div>
+            </div>
+
+            <!-- Phase 22 — Follow up on answered comments -->
+            <div class="row">
+              <label class="row-label" for="followup-on-answered">
+                <svg class="ic"><use href="#i-chat"/></svg>Follow up on answered <span class="opt">off by default</span>
+              </label>
+              <div class="row-field">
+                <label class="check" for="followup-on-answered">
+                  <input type="checkbox" id="followup-on-answered" name="followupOnAnswered">
+                  <span>Suggest follow-ups on threads you have already answered</span>
+                </label>
+                <p class="hint hint-block">
+                  Surfaces threads where the viewer asked an additional question after your reply, and drafts
+                  suggested follow-ups in the Side Panel for you to review and send by hand. Never auto-posts.
+                </p>
+                <div class="row-field-pair" style="margin-top: 8px;">
+                  <label class="row-label" for="followup-instruction">Follow-up instruction <span class="opt">optional</span></label>
+                  <input
+                    class="control"
+                    id="followup-instruction"
+                    name="followupInstruction"
+                    type="text"
+                    dir="auto"
+                    placeholder="e.g. Focus on answering their follow-up question directly without repeating the earlier reply."
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!--
+              Phase 23.1 — Target Replies & Hearting.
+
+              A SEPARATE switch, and deliberately the opposite default to the row above:
+              that one is ON because it only SUPPRESSES work, this one is OFF because it
+              makes the extension act in the creator's account — clicking the real heart
+              control in their logged-in session. Nothing there can be taken back by
+              turning a switch off later, so it must be opted into, never inherited.
+
+              Ordering in the page is not alphabetical; it follows the run. The heart
+              filter above removes a comment before matching, and this one acts after the
+              draft is typed, so reading them top to bottom reads as the sequence.
+            -->
+            <div class="row">
+              <label class="row-label" for="target-reply-hearting">
+                <svg class="ic"><use href="#i-heart"/></svg>Target Replies &amp; Hearting <span class="opt">off by default</span>
+              </label>
+              <div class="row-field">
+                <label class="check" for="target-reply-hearting">
+                  <input type="checkbox" id="target-reply-hearting" name="targetReplyHeartingEnabled">
+                  <span>Match target comments, prepare reply drafts, and heart processed comments.</span>
+                </label>
+                <p class="hint hint-block">
+                  After the extension writes a draft reply for a comment a
+                  <strong>trigger</strong> matched, it also presses the heart on that comment — so a
+                  viewer sees one consistent action instead of a half-answered thread. The reply is
+                  still left in the box for you to send; <strong>submit is never clicked for
+                  you</strong>. Nothing is hearted while dry run is on.
+                  <br><br>
+                  This does not apply to Knowledge Base replies, which have no trigger behind them.
+                  It is independent of the switch above: that one skips comments you have already
+                  hearted, this one adds a heart to the ones it drafts.
+                </p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="reply-blacklist">
+                <svg class="ic"><use href="#i-alert"/></svg>Banned phrases <span class="opt">optional</span>
+              </label>
+              <div class="row-field">
+                <textarea class="control" id="reply-blacklist" name="blacklist" rows="2" dir="auto"
+                          placeholder="as an ai, ذكاء اصطناعي"></textarea>
+                <p class="hint">A reply containing any of these is discarded instead of posted.
+                  Leave empty to use the built-in list, which blocks the model describing itself as AI.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="static-context">
+                <svg class="ic"><use href="#i-doc"/></svg>Static context <span class="opt">optional</span>
+              </label>
+              <div class="row-field">
+                <textarea class="control" id="static-context" name="staticContext" rows="4" dir="auto"
+                          placeholder="Product name, price, link, or any fixed facts the model may use."></textarea>
+                <p class="hint">Sent to the model only when filled in. It is told not to use anything beyond this.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Safety & limits: the settings that decide whether a reply is actually
+             posted and how fast. Both can hurt a real channel, so both are gated
+             behind an explicit confirmation instead of a plain save. -->
+        <section class="card" aria-labelledby="h-safety">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-shield"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-safety">Safety &amp; limits</h2>
+              <p class="card-sub">Control what gets posted and how often.</p>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <div class="row">
+              <div class="row-field row-field-wide">
+                <label class="check" for="dry-run">
+                  <input type="checkbox" id="dry-run" checked>
+                  <span>Dry run</span>
+                </label>
+                <p class="hint hint-block">Prepare replies and fill the box, but never press Submit.
+                  Leave this on until you trust the output.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="max-replies-per-hour"><svg class="ic"><use href="#i-clock"/></svg>Max replies / hour</label>
+              <div class="row-field">
+                <input class="control control-number" type="number" id="max-replies-per-hour"
+                       min="1" max="600" step="1" inputmode="numeric">
+                <p class="hint">Counted over a rolling one-hour window. Lower is safer.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="reply-delay-min"><svg class="ic"><use href="#i-hash"/></svg>Delay <span class="opt">seconds</span></label>
+              <div class="row-field row-field-pair">
+                <span class="pair">
+                  <input class="control control-number" type="number" id="reply-delay-min"
+                         min="0" max="600" step="1" inputmode="numeric" aria-label="Minimum delay in seconds">
+                  <span class="pair-sep">to</span>
+                  <input class="control control-number" type="number" id="reply-delay-max"
+                         min="0" max="600" step="1" inputmode="numeric" aria-label="Maximum delay in seconds">
+                </span>
+                <p class="hint">A random pause between replies, so replies do not arrive in a burst.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="row-field row-field-wide">
+                <label class="check" for="debug-mode">
+                  <input type="checkbox" id="debug-mode">
+                  <span>Diagnostics logging</span>
+                </label>
+                <p class="hint hint-block">Writes detailed progress to the service worker console.
+                  Turn it off unless you are troubleshooting.</p>
+              </div>
+            </div>
+
+            <div id="safety-error" class="error-message" style="display: none;"></div>
+
+            <!-- Task 16.3 — explicit confirmation before a risky value is stored. -->
+            <div id="confirm-panel" class="confirm" role="alertdialog" aria-labelledby="confirm-title" hidden>
+              <h3 class="confirm-title" id="confirm-title">Are you sure?</h3>
+              <p class="confirm-body" id="confirm-body"></p>
+              <div class="confirm-actions">
+                <button class="btn btn-soft" type="button" id="confirm-cancel">Cancel</button>
+                <button class="btn btn-danger" type="button" id="confirm-accept">Confirm</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Context templates (Phase 19.5): named, swappable context blocks. -->
+        <section class="card" aria-labelledby="h-templates">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-layers"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-templates">Templates</h2>
+              <p class="card-sub">Keep several versions of your context and switch between them.</p>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <div class="row">
+              <label class="row-label" for="template-name"><svg class="ic"><use href="#i-pencil"/></svg>Name</label>
+              <div class="row-field">
+                <input class="control" type="text" id="template-name" placeholder="Product &amp; pricing" maxlength="60">
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="template-body"><svg class="ic"><use href="#i-doc"/></svg>Context</label>
+              <div class="row-field">
+                <textarea class="control" id="template-body" rows="3" dir="auto"
+                          placeholder="منتج Acme Pro بسعر ٩٩ جنيهًا، والتوصيل مجاني"></textarea>
+                <p class="hint">Appended to every reply prompt after Static context. The active template is the
+                  one marked in use; the rest are kept for later.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="row-field row-field-wide">
+                <button class="btn btn-primary" type="button" id="add-template-btn">
+                  <svg class="ic"><use href="#i-tag"/></svg><span class="btn-label">Add template</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="template-error" class="error-message" style="display: none;"></div>
+            <div id="templates-list" class="trigger-list"></div>
+          </div>
+        </section>
+
+<!-- Triggers: the word list is the heart of the product, so each row keeps
+             its phrases right-aligned and RTL while the state stays scannable. -->
+        <section class="card" aria-labelledby="h-triggers">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-tag"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-triggers">Triggers</h2>
+              <p class="card-sub">A comment is answered when it contains one of these phrases.</p>
+            </div>
+          </header>
+
+          <div class="card-body">
+            <div class="row">
+              <label class="row-label" for="trigger-phrase"><svg class="ic"><use href="#i-hash"/></svg>Phrases</label>
+              <div class="row-field">
+                <input class="control control-arabic" type="text" id="trigger-phrase"
+                       placeholder="بكام، السعر، منين أجيب" dir="auto" spellcheck="false">
+                <p class="hint">Separate phrases with commas.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <label class="row-label" for="trigger-match-mode"><svg class="ic"><use href="#i-layers"/></svg>Match mode</label>
+              <div class="row-field">
+                <select class="control" id="trigger-match-mode">
+                  <option value="contains" selected>Contains — the comment includes the phrase</option>
+                  <option value="exact">Exact — the comment is only the phrase</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Phase 19.6 — reply type. Radios rather than a select because the choice is
+                 binary and both options are worth reading in full, and because the fixed
+                 reply box below belongs to one of them: the pairing is the meaning. -->
+            <div class="row">
+              <span class="row-label" id="trigger-reply-mode-label">Reply type</span>
+              <div class="row-field">
+                <div class="checks" role="radiogroup" aria-labelledby="trigger-reply-mode-label">
+                  <label class="check" for="trigger-reply-mode-ai">
+                    <input type="radio" name="trigger-reply-mode" id="trigger-reply-mode-ai"
+                           value="ai" checked>
+                    <span>AI generated</span>
+                  </label>
+                  <label class="check" for="trigger-reply-mode-fixed">
+                    <input type="radio" name="trigger-reply-mode" id="trigger-reply-mode-fixed"
+                           value="fixed">
+                    <span>Fixed reply</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Shown only while "Fixed reply" is selected. The text is what gets posted,
+                 so it is a textarea with dir="auto" (the reply is usually Arabic) and
+                 spellcheck off, matching the phrase box above. -->
+            <div class="row" id="trigger-fixed-reply-row" style="display: none;">
+              <label class="row-label" for="trigger-fixed-reply"><svg class="ic"><use href="#i-tag"/></svg>Fixed reply</label>
+              <div class="row-field">
+                <textarea class="control control-arabic" id="trigger-fixed-reply" dir="auto"
+                          spellcheck="false" placeholder="السعر 100 جنيه، والرابط موجود في الوصف."></textarea>
+                <p class="hint">Use this exact text as the reply. LM Studio will not generate or modify it.</p>
+              </div>
+            </div>
+
+            <div class="row">
+              <div class="row-field row-field-wide">
+                <div class="checks">
+                  <label class="check" for="trigger-enabled">
+                    <input type="checkbox" id="trigger-enabled" checked>
+                    <span>Enabled</span>
+                  </label>
+                  <label class="check" for="trigger-case-sensitive">
+                    <input type="checkbox" id="trigger-case-sensitive">
+                    <span>Case sensitive</span>
+                  </label>
+                </div>
+                <button class="btn btn-primary" type="button" id="add-trigger-btn">
+                  <svg class="ic"><use href="#i-tag"/></svg><span class="btn-label">Add trigger</span>
+                </button>
+              </div>
+            </div>
+
+            <div id="trigger-error" class="error-message" style="display: none;"></div>
+            <div id="triggers-list" class="trigger-list"></div>
+          </div>
+        </section>
+
+        <!-- About / Help: the two sidebar destinations. Static text, no logic. -->
+        <section class="card" id="about" aria-labelledby="h-about">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-shield"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-about">About</h2>
+              <p class="card-sub">What this extension does, and where your data goes.</p>
+            </div>
+          </header>
+          <div class="card-body">
+            <!-- Keep the version in sync with src/manifest.json when it is bumped. -->
+            <p class="prose">YouTube Auto Reply watches your open video page for comments that match
+              your triggers, asks the local model you configured for a reply, and drafts that reply
+              into the comment box for you to send.</p>
+            <p class="prose"><b>Version 1.1.0.</b> Generation runs entirely on your own machine through
+              LM Studio, so comment text is never sent anywhere else.</p>
+          </div>
+        </section>
+
+        <section class="card" id="help" aria-labelledby="h-help">
+          <header class="card-head">
+            <span class="card-icon"><svg class="ic"><use href="#i-bulb"/></svg></span>
+            <div>
+              <h2 class="card-title" id="h-help">Help</h2>
+              <p class="card-sub">The short path from a fresh install to a working reply.</p>
+            </div>
+          </header>
+          <div class="card-body">
+            <ol class="steps">
+              <li>Start LM Studio and load a model on its local server.</li>
+              <li>Set the <b>Base URL</b> and pick the <b>Model</b>, then save.</li>
+              <li>Run <b>Test LM Studio Connection</b>, then <b>Test Chat Completion</b>.</li>
+              <li>Add trigger phrases, then turn the extension on from the popup.</li>
+            </ol>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── side column ──────────────────────────────────────────────────── -->
+      <div class="col col-side">
+
+        <section class="card card-test" aria-labelledby="h-test">
+          <div class="test-art" aria-hidden="true">
+            <div class="stage">
+              <span class="orbit orbit-sm"></span>
+              <span class="bubble bubble-dark bubble-xs"><i></i><i></i><i></i></span>
+              <span class="play3d play3d-sm"><span class="play3d-face"></span><span class="play3d-tri"></span></span>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <h2 class="card-title card-title-lg" id="h-test">Test Your Setup</h2>
+            <p class="card-sub">Make sure everything is working before enabling auto replies.</p>
+
+            <button class="btn btn-primary btn-block" type="button" id="test-connection-btn">
+              <svg class="ic ic-fill"><use href="#i-play"/></svg><span class="btn-label">Test LM Studio Connection</span>
+            </button>
+            <button class="btn btn-soft btn-block" type="button" id="test-chat-completion-btn">
+              <svg class="ic"><use href="#i-chat"/></svg><span class="btn-label">Test Chat Completion</span>
+            </button>
+
+            <!-- options.js rewrites className wholesale on all three, so their
+                 look must be declared per-ID and not inherited from .message. -->
+            <div id="message" class="message"></div>
+            <div id="connection-result" class="hidden message"></div>
+            <div id="chat-result" class="message"></div>
+          </div>
+        </section>
+
+        <section class="card card-tips" aria-labelledby="h-tips">
+          <div class="card-body">
+            <h2 class="card-title card-title-lg" id="h-tips">Tips</h2>
+            <ul class="tips">
+              <li><svg class="ic"><use href="#i-shield"/></svg><span>Use a local model like LM Studio for privacy and faster replies.</span></li>
+              <li><svg class="ic"><use href="#i-chat"/></svg><span>Add common phrases your audience uses in the Triggers section.</span></li>
+              <li><svg class="ic"><use href="#i-pencil"/></svg><span>Include product name, link, or other fixed info in Static context.</span></li>
+              <li><svg class="ic"><use href="#i-check-circle"/></svg><span>Test the connection and chat completion to make sure everything works.</span></li>
+            </ul>
+          </div>
+        </section>
+      </div>
     </div>
-  </div>
-  <script type="module" src="options.js"></script>
+  </main>
+</div>
+
+<script type="module" src="options.js"></script>
 </body>
 </html>

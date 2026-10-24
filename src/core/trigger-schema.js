@@ -22,6 +22,15 @@
  *   - "contains": Rule triggers if ANY phrase is contained in the comment text
  *   - "exact": Rule triggers only if the entire comment matches a phrase exactly
  * @property {boolean} caseSensitive - Whether matching should be case-sensitive
+ * @property {"ai"|"fixed"} [replyMode] - How the reply for this rule is produced
+ *   (Phase 19.6):
+ *   - "ai" (default): LM Studio writes the reply. Every rule stored before Phase 19.6
+ *     has no `replyMode` at all and behaves exactly this way.
+ *   - "fixed": the rule's own `fixedReply` text IS the reply, used verbatim. LM Studio is
+ *     still asked whether the comment matches (semantic matching is a separate job), but
+ *     it is NOT asked to write a reply.
+ * @property {string} [fixedReply] - the exact reply text, used only when replyMode is
+ *   "fixed". Optional. Never trimmed, normalized or rewritten anywhere.
  */
 
 /**
@@ -35,7 +44,12 @@ const DEFAULT_TRIGGER_RULE = {
   enabled: true,             // Rules are enabled by default
   phrases: [],               // No phrases defined until added by user
   matchMode: "contains",     // Default to contains matching (more flexible)
-  caseSensitive: false       // Default to case-insensitive for better UX
+  caseSensitive: false,      // Default to case-insensitive for better UX
+  // Phase 19.6 — reply mode. Absent on every rule stored before Phase 19.6, which is why
+  // it is optional and why resolution treats anything but "fixed" as "ai" (see
+  // resolveReplyMode() in core/fixed-reply.js).
+  replyMode: "ai",           // LM Studio writes the reply unless the user says otherwise
+  fixedReply: ""             // No fixed text until the user writes one
 };
 
 /**
@@ -44,6 +58,12 @@ const DEFAULT_TRIGGER_RULE = {
  * @constant {string[]}
  */
 export const VALID_MATCH_MODES = ["contains", "exact"];
+
+/**
+ * Phase 19.6 — valid reply modes. Re-exported from core/fixed-reply.js rather than
+ * duplicated, so there is one list to keep in step with the resolver.
+ */
+export { VALID_REPLY_MODES } from './fixed-reply.js';
 
 /**
  * Export the schema definitions.

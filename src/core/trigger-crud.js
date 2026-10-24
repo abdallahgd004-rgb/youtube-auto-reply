@@ -6,6 +6,57 @@
  */
 
 import { getSettings, saveSettings } from './storage.js';
+// Phase 19.6 — reply mode resolution and the fixed-reply emptiness check. Imported for
+// validation only; the resolver itself is deliberately not used to transform the text.
+import { REPLY_MODES, resolveReplyMode, getFixedReplyText, validateFixedReply } from './fixed-reply.js';
+
+/**
+ * Phase 19.6 — the reply fields to persist, shared by addTrigger() and updateTrigger().
+ *
+ * Two rules govern this, and they are the whole contract of the feature:
+ *
+ *  1. BACKWARD COMPATIBILITY. A rule written before Phase 19.6 has no `replyMode`, so
+ *     resolveReplyMode() reads it as "ai" and the stored copy gains `replyMode: 'ai'` and
+ *     an empty `fixedReply`. Nothing about how such a rule behaves changes.
+ *  2. EXACT TEXT. The user's `fixedReply` is copied across untouched. No trim, no Arabic
+ *     normalization, no case folding, no whitespace collapsing — punctuation, characters,
+ *     spacing, emoji and line breaks are saved exactly as typed. `trim()` appears only
+ *     inside the emptiness check, never on the stored value.
+ *
+ * @param {Object} source - the incoming values (may omit both fields)
+ * @param {Object} original - the stored rule being updated, for updateTrigger()
+ * @returns {{replyMode: string, fixedReply: string}}
+ * @throws {Error} if the rule is in fixed mode without usable text
+ */
+function resolveReplyFields(source, original) {
+  const incoming = source || {};
+  const previous = original || {};
+
+  // Mode: the update's value if given, else the stored one, else "ai".
+  const mode = resolveReplyMode({
+    replyMode: incoming.replyMode !== undefined ? incoming.replyMode : previous.replyMode
+  });
+
+  // Text: the update's value if the caller mentioned the field at all (including an
+  // explicit empty string, which is how a user clears it), else the stored text.
+  // `in` rather than a truthiness check, so '' is treated as a real instruction.
+  const hasIncomingText = Object.prototype.hasOwnProperty.call(incoming, 'fixedReply');
+  const text = hasIncomingText
+    ? getFixedReplyText(incoming)
+    : getFixedReplyText(previous);
+
+  if (mode === REPLY_MODES.FIXED) {
+    const check = validateFixedReply(text);
+    if (!check.valid) {
+      // Never silently accept an empty fixed reply: a fixed rule with nothing to say would
+      // either publish nothing or quietly fall back to AI, and both contradict what the
+      // user asked for on screen.
+      throw new Error('Invalid trigger: replyMode is "fixed" but fixedReply is empty');
+    }
+  }
+
+  return { replyMode: mode, fixedReply: text };
+}
 
 /**
  * Generate a unique ID for a new trigger rule.
@@ -43,13 +94,19 @@ async function addTrigger(trigger) {
   // Generate unique ID if not provided
   const id = trigger.id || generateId();
 
+  // Phase 19.6 — resolved (and validated) before the rule object is built, so a rejected
+  // fixed reply never reaches storage.
+  const replyFields = resolveReplyFields(trigger, null);
+
   // Create the complete rule object with defaults for missing fields
   const rule = {
     id,
     enabled: trigger.enabled !== undefined ? trigger.enabled : true,
     phrases: [...trigger.phrases], // Copy array to avoid reference issues
     matchMode: trigger.matchMode || 'contains',
-    caseSensitive: trigger.caseSensitive ?? false
+    caseSensitive: trigger.caseSensitive ?? false,
+    replyMode: replyFields.replyMode,
+    fixedReply: replyFields.fixedReply
   };
 
   // Get current settings and add the new rule
@@ -103,12 +160,17 @@ async function updateTrigger(triggerId, updates) {
 
   // Create updated rule, preserving existing fields and merging updates
   const originalRule = settings.triggers[index];
+  // Phase 19.6 — merging against the stored rule, so switching a rule back to "ai" does
+  // not erase its saved text and editing only the phrases leaves the reply alone.
+  const replyFields = resolveReplyFields(updates, originalRule);
   const updatedRule = {
     id: originalRule.id,
     enabled: updates.enabled !== undefined ? updates.enabled : originalRule.enabled,
     phrases: updates.phrases !== undefined ? [...updates.phrases] : [...originalRule.phrases], // Preserve existing if not provided
     matchMode: updates.matchMode !== undefined ? updates.matchMode : originalRule.matchMode,
-    caseSensitive: updates.caseSensitive ?? originalRule.caseSensitive
+    caseSensitive: updates.caseSensitive ?? originalRule.caseSensitive,
+    replyMode: replyFields.replyMode,
+    fixedReply: replyFields.fixedReply
   };
 
   // Replace in the triggers array

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube Auto Reply Extension — Development Diagnostic Log</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 24px; background: #fbfbfc; color: #1c1c1e; }
+    h1 { font-size: 18px; font-weight: 600; }
+    p.sub { color: #6b6b70; font-size: 13px; margin-top: 4px; max-width: 70ch; line-height: 1.5; }
+    #test-output { margin-top: 16px; font-family: ui-monospace, monospace; font-size: 13px; line-height: 1.6; white-space: pre-wrap; }
+    .summary { margin-top: 16px; padding: 10px 12px; border-radius: 8px; font-weight: 600; }
+    .summary.passed { background: #e8f5ec; color: #1a6b34; }
+    .summary.failed { background: #fdecec; color: #a02020; }
+  </style>
+</head>
+<body>
+  <h1>Development Diagnostic Log Tests</h1>
+  <p class="sub">
+    Tests the real <code>core/dev-log.js</code> engine — the same one the service
+    worker, the side panel and the content scripts use. Covers verbosity gating,
+    entry schema, run/comment/request correlation, START/END timing, credential
+    redaction and the bounded buffer.
+  </p>
+  <div id="test-output"></div>
+
+  <script type="module">
+    // The stub must exist before any module that touches chrome.storage is evaluated.
+    import { resetStorage } from './chrome-storage-stub.js';
+    import runAllTests from './dev-log-tests.js';
+
+    resetStorage();
+    const results = await runAllTests();
+
+    const summary = document.createElement('div');
+    summary.className = 'summary ' + (results.failed === 0 ? 'passed' : 'failed');
+    summary.innerHTML = `
+      Test Summary
+      Total: ${results.total}
+      Passed: ${results.passed}
+      Failed: ${results.failed}
+    `;
+    document.getElementById('test-output').appendChild(summary);
+  </script>
+</body>
+</html>

@@ -7,13 +7,250 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <h1>LM Studio Comment Replier</h1>
-    <div id="status-display">Status: OFF</div>
-    <button id="toggle-btn">ON</button>
-    <div id="error-message" class="error-message" style="display: none;"></div>
-    <button id="settings-btn" style="margin-top: 8px;">Settings</button>
-  </div>
+
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3.5v8"/><path d="M7.2 6.4a7.5 7.5 0 1 0 9.6 0"/></symbol>
+  <symbol id="i-cpu" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.6"/><path d="M10 3v2.2M14 3v2.2M10 18.8V21M14 18.8V21M3 10h2.2M3 14h2.2M18.8 10H21M18.8 14H21"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.7 11.9c0 3.9-3.9 7.1-8.7 7.1-1 0-2-.15-2.9-.43L4.3 20.6l1.4-3.7a6.8 6.8 0 0 1-2.1-5c0-3.9 3.9-7.1 8.7-7.1s8.4 3.2 8.4 7.1z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.2V12l3.2 2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h8M17 6h3M4 12h3M12 12h8M4 18h8M17 18h3"/><circle cx="14.5" cy="6" r="2.3"/><circle cx="9.5" cy="12" r="2.3"/><circle cx="14.5" cy="18" r="2.3"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.2l7.2 2.9v5.5c0 4.4-3 8.3-7.2 9.5-4.2-1.2-7.2-5.1-7.2-9.5V6.1z"/><path d="M9.2 12.1l2 2 3.6-3.9"/></symbol>
+  <!-- Phase 22: a reply arrow, for the follow-up board. -->
+  <symbol id="i-reply" viewBox="0 0 24 24"><path d="M10 5.5L4.5 11 10 16.5"/><path d="M4.9 11H14a5.2 5.2 0 0 1 5.2 5.2v.8"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.3c-.4 0-.7-.13-1-.38C7.9 17.5 3.6 14 3.6 9.7A4.6 4.6 0 0 1 8.2 5.1c1.6 0 3 .74 3.8 2 .8-1.26 2.2-2 3.8-2a4.6 4.6 0 0 1 4.6 4.6c0 4.3-4.3 7.8-7.4 10.22-.3.25-.6.38-1 .38z"/></symbol>
+</defs></svg>
+
+  <main class="sheet">
+
+    <!-- The masthead carries the only two facts that matter at a glance: what this
+         is, and whether it is running. It turns from maroon to red when live. -->
+    <header class="masthead">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div class="masthead-text">
+          <h1 class="wordmark">Auto Reply</h1>
+          <p id="status-display" class="state-line">Stopped</p>
+        </div>
+      </div>
+      <button id="toggle-btn" class="btn btn-switch" type="button">
+        <svg class="ic"><use href="#i-power"/></svg><span class="btn-label">Turn on</span>
+      </button>
+    </header>
+
+
+    <div class="feature-switch">
+      <button id="heart-filter-btn" class="btn btn-feature" type="button" data-on="true"
+              aria-pressed="true">
+        <svg class="ic"><use href="#i-heart"/></svg>
+        <span id="heart-filter-label" class="btn-label">Hearted comments: skipped</span>
+      </button>
+    </div>
+
+    <div class="feature-switch">
+      <button id="replied-filter-btn" class="btn btn-feature" type="button" data-on="true"
+              aria-pressed="true">
+        <svg class="ic"><use href="#i-chat"/></svg>
+        <span id="replied-filter-label" class="btn-label">Answered comments: skipped</span>
+      </button>
+    </div>
+
+    <!--
+      Phase 23.1 — the heart-APPLYING switch, and the opposite default to the one above.
+
+      `data-on="false"` in the markup, because this one is off until the user turns it on. The
+      same no-optimistic-render rule applies: the label follows what storage confirms, never
+      what the click asked for.
+    -->
+    <div class="feature-switch">
+      <button id="heart-apply-btn" class="btn btn-feature" type="button" data-on="false"
+              aria-pressed="false">
+        <svg class="ic"><use href="#i-heart"/></svg>
+        <span id="heart-apply-label" class="btn-label">Target replies &amp; hearting: off</span>
+      </button>
+    </div>
+
+    <!--
+      The one element worth looking at: what the machine last wrote to a real person.
+      data-empty starts true: the slot holds English chrome, so it must stay LTR.
+      The script switches it to dir="rtl" only when real Arabic arrives — mixing
+      English copy into an RTL block makes bidi throw the full stop to the front.
+    -->
+    <section class="record" aria-labelledby="record-label">
+      <h2 id="record-label" class="label">Last reply written</h2>
+      <blockquote class="quote" data-empty="true">
+        <p id="record-reply" class="quote-body">Nothing written yet.</p>
+        <footer class="quote-foot">
+          <span class="cue">In reply to</span>
+          <span id="record-comment" class="quote-src" dir="rtl" lang="ar">&mdash;</span>
+        </footer>
+      </blockquote>
+    </section>
+
+    <!--
+      Live processing status. Five counters read as one block of numbers rather than
+      five more ledger rows, so the eye can take them in together; the stage sits on its
+      own line underneath because it is a sentence, not a number.
+    -->
+    <section class="processing" aria-labelledby="processing-label">
+      <div class="processing-head">
+        <h2 id="processing-label" class="label">Processing</h2>
+        <button id="reset-stats-btn" class="btn-reset" type="button" title="Reset stats" aria-label="Reset processing stats">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+            <path d="M3 3v5h5"/>
+          </svg>
+          <span>Reset</span>
+        </button>
+      </div>
+      <div class="tallies">
+        <div class="tally">
+          <span class="tally-value" id="tally-detected">0</span>
+          <span class="tally-key">Comments detected</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-matched">0</span>
+          <span class="tally-key">Matched</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-generated">0</span>
+          <span class="tally-key">Replies generated</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-submitted">0</span>
+          <span class="tally-key">Replies submitted</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-failed">0</span>
+          <span class="tally-key">Failed / skipped</span>
+        </div>
+      </div>
+      <p class="stage">
+        <span class="stage-key">Current stage</span>
+        <span class="stage-value" id="stage-value">Idle</span>
+      </p>
+      <!--
+        Phase 20.18. `matched` counts TRIGGER matches, so it stays at zero in Knowledge
+        Mode and a grounded reply is invisible in the five tallies above. These three are
+        what makes a Knowledge run readable. They are rendered unconditionally, including
+        at zero: a knowledge base that is never consulted is itself worth seeing, and a
+        panel that hides the row until it is non-zero would hide it precisely when a user
+        has configured Knowledge Mode and nothing is happening.
+
+        `knowledgeSkipped` counts declines that are the feature WORKING, and is
+        deliberately kept out of "Failed / skipped" above — see recordKnowledgeSkip().
+      -->
+      <p class="tallies-caption">Knowledge base</p>
+      <div class="tallies">
+        <div class="tally">
+          <span class="tally-value" id="tally-kb-hits">0</span>
+          <span class="tally-key">Knowledge hits</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-kb-answerable">0</span>
+          <span class="tally-key">Answerable</span>
+        </div>
+        <div class="tally">
+          <span class="tally-value" id="tally-kb-skipped">0</span>
+          <span class="tally-key">Declined by the base</span>
+        </div>
+      </div>
+      <!--
+        Skip reasons. `hidden` when empty so a clean run shows nothing here: a list of
+        zeroes is noise, and "the base knew and declined" needs no explanation. The reasons
+        that DO appear are the ones that send a user into their Markdown files.
+      -->
+      <ul class="skip-reasons" id="kb-skip-reasons" hidden></ul>
+      <!--
+        Phase 22.1 — WHY the last one declined.
+
+        The list above is a run summary: it counts. This answers the question a user
+        actually opens the panel with — "why did THAT one get no reply?" — by showing the
+        gate's own words and the files it was offered. Without it, "Declined by the base: 1"
+        sends the user into their Markdown with nothing to search for.
+      -->
+      <div id="kb-last-decline" class="kb-decline" hidden></div>
+      <!-- Total time is the whole run, not a stage: it starts at the first detected
+           comment and stops when the last one of that run reaches a terminal state. -->
+      <p class="stage">
+        <span class="stage-key">Total time</span>
+        <span class="stage-value" id="total-time-value">0.0 seconds</span>
+      </p>
+    </section>
+
+    <section class="ledger" aria-label="Machine status">
+      <!-- Posted or not? A "Running" popup that silently never publishes is the most
+           damaging state this product can be in, so the gate is stated explicitly. -->
+      <div class="row">
+        <span class="row-key"><svg class="ic row-ic"><use href="#i-shield"/></svg>Posting</span>
+        <span id="mode-value" class="detail-value dry">Dry run</span>
+      </div>
+      <div class="row">
+        <span class="row-key"><svg class="ic row-ic"><use href="#i-cpu"/></svg>LM Studio</span>
+        <span id="connection-value" class="detail-value unknown">Unknown</span>
+      </div>
+      <p id="connection-hint" class="hint" style="display: none;"></p>
+      <div class="row">
+        <span class="row-key"><svg class="ic row-ic"><use href="#i-cpu"/></svg>Model</span>
+        <span id="model-value" class="detail-value">Not set</span>
+      </div>
+      <div class="row">
+        <span class="row-key"><svg class="ic row-ic"><use href="#i-clock"/></svg>Waiting</span>
+        <span id="queue-value" class="detail-value">0</span>
+      </div>
+      <div class="row">
+        <!-- The label lives in its own span because popup.js rewrites its textContent;
+             an icon beside it would be wiped on every rate-limit window change. -->
+        <span class="row-key"><svg class="ic row-ic"><use href="#i-chat"/></svg><span id="replies-label">Replies this hour</span></span>
+        <span id="replies-value" class="detail-value">0 / 30</span>
+      </div>
+    </section>
+
+    <p id="error-message" class="error-message" style="display: none;"></p>
+
+    <!--
+      Phase 22 — the follow-up board.
+
+      Shown ONLY when the feature is on, and that is the point rather than a convenience:
+      the creator asked for this to be something they control, and a list that survives
+      after they turn it off is a list they cannot dismiss.
+
+      Every control here DRAFTS or COPIES. Nothing on this panel posts. The creator's reply
+      is their own, which is the whole reason the feature exists.
+    -->
+    <section class="ledger" id="followup-section" aria-label="Follow-ups" hidden>
+      <div class="row">
+        <span class="row-key">
+          <svg class="ic row-ic"><use href="#i-reply"/></svg>
+          <span id="followup-label">Comments you answered</span>
+        </span>
+        <span id="followup-count" class="detail-value">0</span>
+      </div>
+      <p id="followup-hint" class="hint" hidden></p>
+      <ul class="skip-reasons" id="followup-list"></ul>
+      <div class="foot" id="followup-actions" hidden>
+        <button id="followup-refresh-btn" class="btn btn-quiet" type="button">
+          <span class="btn-label">Refresh</span>
+        </button>
+        <button id="followup-clear-btn" class="btn btn-quiet" type="button">
+          <span class="btn-label">Clear list</span>
+        </button>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <button id="settings-btn" class="btn btn-quiet" type="button">
+        <svg class="ic"><use href="#i-sliders"/></svg><span class="btn-label">Open settings</span>
+      </button>
+      <!-- Chrome renders its own close control on every Side Panel, so closing is
+           always possible. This is the in-panel equivalent for users who look for
+           one here. -->
+      <button id="close-panel-btn" class="btn btn-quiet" type="button">
+        <svg class="ic"><use href="#i-close"/></svg><span class="btn-label">Close panel</span>
+      </button>
+    </footer>
+
+  </main>
   <script type="module" src="popup.js"></script>
 </body>
 </html>
