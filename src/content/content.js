@@ -48,7 +48,16 @@ const SiteAdapter = globalThis.YouTubeSiteAdapter || null;
  * @param {Object} parsed - A comment object from adapter.parseComment()
  * @returns {Object} Same shape as the parsed comment, with normalized text
  */
+const detectedCommentsMap = new Map();
+
 function buildDetectedComment(parsed) {
+  if (parsed && parsed.id) {
+    detectedCommentsMap.set(parsed.id, parsed);
+    if (detectedCommentsMap.size > 200) {
+      const firstKey = detectedCommentsMap.keys().next().value;
+      detectedCommentsMap.delete(firstKey);
+    }
+  }
   return {
     id: parsed.id,
     author: parsed.author,
@@ -813,10 +822,13 @@ let _replyQueue = Promise.resolve(); // chain head; new work is appended
  *
  * @param {Function} fn - Async function taking (comment, response)
  */
-function enqueueReply(fn) {
+function enqueueReply(fn, commentId) {
   _replyQueue = _replyQueue.then(function () {
     return fn().catch(function (err) {
-      __YTAR_DEBUG.logError('Reply queue task failed:', err.message);
+      __YTAR_DEBUG.logError('Reply queue task failed:', err && err.message ? err.message : String(err));
+      if (commentId) {
+        reportStage(STAGE_LABELS_FOR_REPORT.ERROR, OUTCOME_FOR_REPORT.FAILED, commentId);
+      }
     });
   });
 }
@@ -829,6 +841,25 @@ function enqueueReply(fn) {
  * re-attempt after a DOM change could post the same reply twice.
  */
 const _publishAttempts = new Set();
+const _queuedReplyIds = new Set();
+
+/**
+ * Enqueue a MATCH reply at most once per comment ID, even when both
+ * `sendMessage`'s callback and `MATCH_REPLY_READY` deliver the same verdict.
+ */
+function enqueueMatchReplyOnce(comment, response) {
+  const id = (response && response.id) || (comment && comment.id);
+  if (id) {
+    if (_queuedReplyIds.has(id) || _publishAttempts.has(id)) {
+      return false;
+    }
+    _queuedReplyIds.add(id);
+  }
+  enqueueReply(function () {
+    return handleMatchReply(comment, response);
+  }, id);
+  return true;
+}
 
 /**
  * Tell the background which processing stage the reply has reached.
@@ -946,161 +977,171 @@ async function handleMatchReply(comment, response) {
   }
   _publishAttempts.add(comment.id);
 
-  reportStage(S.PREPARING_REPLY, '', comment.id);
+  try {
+    reportStage(S.PREPARING_REPLY, '', comment.id);
 
-  if (isHeartFilterEnabled() &&
-      typeof adapter.isHeartedComment === 'function' &&
-      adapter.isHeartedComment(comment.element || comment)) {
-    __YTAR_DEBUG.debugLog('handleMatchReply: creator heart detected in live DOM; skipping comment id=' + comment.id);
-    publishTimer.done({ outcome: 'skipped', reason: 'creator hearted' });
-    finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
-    return;
-  }
-
-  if (isCreatorReplyFilterEnabled() &&
-      typeof adapter.hasCreatorReply === 'function' &&
-      adapter.hasCreatorReply(comment.element || comment)) {
-    __YTAR_DEBUG.debugLog('handleMatchReply: creator reply detected in live DOM; skipping comment id=' + comment.id);
-    publishTimer.done({ outcome: 'skipped', reason: 'creator already replied' });
-    finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
-    return;
-  }
-
-  // Task 13.5: re-find the comment when YouTube has replaced its DOM node.
-  if (adapter.isCommentDetached(comment)) {
-    const refreshed = adapter.reacquireComment(comment);
-    if (!refreshed) {
-      __YTAR_DEBUG.logError('handleMatchReply: comment id=' + comment.id +
-        ' left the DOM and could not be re-found — aborting without publishing');
-      publishTimer.fail(null, { outcome: 'failed', reason: 'comment node detached and could not be re-found' });
-      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+    if (isHeartFilterEnabled() &&
+        typeof adapter.isHeartedComment === 'function' &&
+        adapter.isHeartedComment(comment.element || comment)) {
+      __YTAR_DEBUG.debugLog('handleMatchReply: creator heart detected in live DOM; skipping comment id=' + comment.id);
+      publishTimer.done({ outcome: 'skipped', reason: 'creator hearted' });
+      finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
       return;
     }
-    __YTAR_DEBUG.debugLog('handleMatchReply: re-acquired the live element for comment id=' + refreshed.id);
-    comment = refreshed;
-  }
 
-  // Step a: find the reply button
-  var replyBtn = adapter.findReplyButton(comment);
-  if (!replyBtn) {
-    __YTAR_DEBUG.logError('handleMatchReply: findReplyButton returned null for comment id=' + comment.id);
-    finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
-    return;
-  }
-
-  // Step b: open the reply box (async)
-  reportStage(S.OPENING_REPLY_BOX, '', comment.id);
-  var replyBox = await adapter.openReplyBox(comment);
-  if (!replyBox) {
-    __YTAR_DEBUG.logError('handleMatchReply: openReplyBox returned null for comment id=' + comment.id);
-    finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
-    return;
-  }
-
-  // Task 13.5: the reply box itself can be torn down between opening it and filling it
-  // in (e.g. the comments panel is collapsed or the user scrolls a re-render through).
-  // Re-find the comment once; if that no longer works, abort rather than typing into a
-  // detached editor.
-  if (typeof replyBox.isConnected === 'boolean' && !replyBox.isConnected) {
-    __YTAR_DEBUG.debugWarn('handleMatchReply: reply box detached before typing for comment id=' + comment.id);
-    const refreshed = adapter.reacquireComment(comment);
-    if (!refreshed) {
-      __YTAR_DEBUG.logError('handleMatchReply: could not re-find comment id=' + comment.id + ' — aborting without publishing');
-      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+    if (isCreatorReplyFilterEnabled() &&
+        typeof adapter.hasCreatorReply === 'function' &&
+        adapter.hasCreatorReply(comment.element || comment)) {
+      __YTAR_DEBUG.debugLog('handleMatchReply: creator reply detected in live DOM; skipping comment id=' + comment.id);
+      publishTimer.done({ outcome: 'skipped', reason: 'creator already replied' });
+      finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
       return;
     }
-    comment = refreshed;
-    replyBox = await adapter.openReplyBox(comment);
-    if (!replyBox) {
-      __YTAR_DEBUG.logError('handleMatchReply: could not re-open the reply box for comment id=' + comment.id);
-      publishTimer.fail(null, { outcome: 'failed', reason: 'reply box could not be opened' });
-      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
-      return;
-    }
-  }
 
-  // Step c: set the reply text
-  reportStage(S.INSERTING_REPLY, '', comment.id);
-  var setTextOk = adapter.setReplyText(replyBox, response.reply);
-  if (!setTextOk) {
-    __YTAR_DEBUG.logError('handleMatchReply: setReplyText returned false for comment id=' + comment.id);
-    publishTimer.fail(null, { outcome: 'failed', reason: 'setReplyText returned false', step: 'insert' });
-    finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
-    return;
-  }
-
-  // Step d: Phase 23.1 — apply the creator's heart, now that the draft is in the box.
-  //
-  // ORDERING IS THE REQUIREMENT, not a preference: the heart goes on AFTER the text is
-  // successfully inserted (there is now a draft that deserves it) and BEFORE the submit
-  // step, which in dry-run is where the run stops and nothing is published. So a dry-run
-  // pass never reaches a click at all.
-  //
-  // TWO INDEPENDENT GATES, deliberately:
-  //   1. `response.heartAfterInsert` — decided by the service worker from the creator's
-  //      CURRENT settings. This is what makes the feature enforceable from the background:
-  //      a stale tab or panel cannot continue hearting after it has been switched off,
-  //      because this value was computed in the worker, not here.
-  //   2. `dryRun` re-read from storage — fails SAFE to true. The worker's read happened
-  //      before the reply box was even open; this one happens with the draft in front of
-  //      the user, which is the last moment a changed setting can still be honoured.
-  //
-  // Failure here NEVER fails the comment. A heart is a courtesy on a reply that was
-  // already drafted correctly; treating a failed heart as a failed publish would discard
-  // a good draft and misreport the run.
-  if (response.heartAfterInsert === true || response.targetReplyWorkflow === true) {
-    reportStage(S.HEARTING_COMMENT, '', comment.id);
-
-    // Re-acquire live node in case opening the reply box re-rendered the action buttons
+    // Task 13.5: re-find the comment when YouTube has replaced its DOM node.
     if (adapter.isCommentDetached(comment)) {
       const refreshed = adapter.reacquireComment(comment);
-      if (refreshed) comment = refreshed;
+      if (!refreshed) {
+        __YTAR_DEBUG.logError('handleMatchReply: comment id=' + comment.id +
+          ' left the DOM and could not be re-found — aborting without publishing');
+        publishTimer.fail(null, { outcome: 'failed', reason: 'comment node detached and could not be re-found' });
+        finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+        return;
+      }
+      __YTAR_DEBUG.debugLog('handleMatchReply: re-acquired the live element for comment id=' + refreshed.id);
+      comment = refreshed;
     }
 
-    var dryRunNow = await adapter.isDryRunActive('handleMatchReply:heart');
-    if (dryRunNow) {
-      __YTAR_DEBUG.debugLog(
-        'handleMatchReply: dry run active; applying creator heart as configured for target-reply workflow (id=' + comment.id + ')'
-      );
-    }
-    var hearted = adapter.heartComment(comment.element || comment);
-    if (hearted) {
-      heartedCommentsApplied++;
-      __YTAR_DEBUG.debugLog(
-        'handleMatchReply: hearted the comment after drafting (id=' + comment.id + ')'
-      );
-    } else {
-      __YTAR_DEBUG.debugWarn(
-        'handleMatchReply: could not heart the comment (id=' + comment.id + ') — draft left in place'
-      );
+    // Step a: find the reply button
+    var replyBtn = adapter.findReplyButton(comment);
+    if (!replyBtn) {
+      __YTAR_DEBUG.logError('handleMatchReply: findReplyButton returned null for comment id=' + comment.id);
+      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+      return;
     }
 
-    // Target Replies & Hearting workflow: leave the reply in the editor for manual
-    // review by the creator; never click Submit automatically.
-    __YTAR_DEBUG.debugLog('handleMatchReply: draft inserted and heart step completed; leaving in editor');
-    publishTimer.done({ outcome: 'drafted', step: 'heart_after_insert' });
+    // Step b: open the reply box (async)
+    reportStage(S.OPENING_REPLY_BOX, '', comment.id);
+    var replyBox = await adapter.openReplyBox(comment);
+    if (!replyBox) {
+      __YTAR_DEBUG.logError('handleMatchReply: openReplyBox returned null for comment id=' + comment.id);
+      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+      return;
+    }
+
+    // Task 13.5: the reply box itself can be torn down between opening it and filling it
+    // in (e.g. the comments panel is collapsed or the user scrolls a re-render through).
+    // Re-find the comment once; if that no longer works, abort rather than typing into a
+    // detached editor.
+    if (typeof replyBox.isConnected === 'boolean' && !replyBox.isConnected) {
+      __YTAR_DEBUG.debugWarn('handleMatchReply: reply box detached before typing for comment id=' + comment.id);
+      const refreshed = adapter.reacquireComment(comment);
+      if (!refreshed) {
+        __YTAR_DEBUG.logError('handleMatchReply: could not re-find comment id=' + comment.id + ' — aborting without publishing');
+        finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+        return;
+      }
+      comment = refreshed;
+      replyBox = await adapter.openReplyBox(comment);
+      if (!replyBox) {
+        __YTAR_DEBUG.logError('handleMatchReply: could not re-open the reply box for comment id=' + comment.id);
+        publishTimer.fail(null, { outcome: 'failed', reason: 'reply box could not be opened' });
+        finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+        return;
+      }
+    }
+
+    // Step c: set the reply text
+    reportStage(S.INSERTING_REPLY, '', comment.id);
+    var setTextOk = adapter.setReplyText(replyBox, response.reply);
+    if (!setTextOk) {
+      __YTAR_DEBUG.logError('handleMatchReply: setReplyText returned false for comment id=' + comment.id);
+      publishTimer.fail(null, { outcome: 'failed', reason: 'setReplyText returned false', step: 'insert' });
+      finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
+      return;
+    }
+
+    // Step d: Phase 23.1 — apply the creator's heart, now that the draft is in the box.
+    //
+    // ORDERING IS THE REQUIREMENT, not a preference: the heart goes on AFTER the text is
+    // successfully inserted (there is now a draft that deserves it) and BEFORE the submit
+    // step, which in dry-run is where the run stops and nothing is published. So a dry-run
+    // pass never reaches a click at all.
+    //
+    // TWO INDEPENDENT GATES, deliberately:
+    //   1. `response.heartAfterInsert` — decided by the service worker from the creator's
+    //      CURRENT settings. This is what makes the feature enforceable from the background:
+    //      a stale tab or panel cannot continue hearting after it has been switched off,
+    //      because this value was computed in the worker, not here.
+    //   2. `dryRun` re-read from storage — fails SAFE to true. The worker's read happened
+    //      before the reply box was even open; this one happens with the draft in front of
+    //      the user, which is the last moment a changed setting can still be honoured.
+    //
+    // Failure here NEVER fails the comment. A heart is a courtesy on a reply that was
+    // already drafted correctly; treating a failed heart as a failed publish would discard
+    // a good draft and misreport the run.
+    if (response.heartAfterInsert === true) {
+      reportStage(S.HEARTING_COMMENT, '', comment.id);
+
+      // Re-acquire live node in case opening the reply box re-rendered the action buttons
+      if (adapter.isCommentDetached(comment)) {
+        const refreshed = adapter.reacquireComment(comment);
+        if (refreshed) comment = refreshed;
+      }
+
+      var dryRunNow = await adapter.isDryRunActive('handleMatchReply:heart');
+      if (dryRunNow) {
+        __YTAR_DEBUG.debugLog(
+          'handleMatchReply: dry run active; skipping creator heart (id=' + comment.id + ')'
+        );
+      } else {
+        var hearted = adapter.heartComment(comment.element || comment);
+        if (hearted) {
+          heartedCommentsApplied++;
+          __YTAR_DEBUG.debugLog(
+            'handleMatchReply: hearted the comment after drafting (id=' + comment.id + ')'
+          );
+        } else {
+          __YTAR_DEBUG.debugWarn(
+            'handleMatchReply: could not heart the comment (id=' + comment.id + ') — draft left in place'
+          );
+        }
+      }
+
+      // Target Replies & Hearting workflow: leave the reply in the editor for manual
+      // review by the creator; never click Submit automatically. Report SKIPPED so
+      // the comment is not counted as submitted or permanently marked handled.
+      __YTAR_DEBUG.debugLog('handleMatchReply: draft inserted and heart step completed; leaving in editor');
+      publishTimer.done({ outcome: 'drafted', step: 'heart_after_insert' });
+      finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
+      return;
+    }
+
+    // Step e: submit the reply (async; respects dryRun gate internally)
+    reportStage(S.SUBMITTING_REPLY, '', comment.id);
+    var submitted = await adapter.submitReply(replyBox);
+    if (!submitted) {
+      __YTAR_DEBUG.debugWarn('handleMatchReply: submitReply returned false for comment id=' + comment.id);
+      // submitReply() returns false in dry-run on purpose (nothing was clicked) and also
+      // when the button could not be found. Both are an attempt that ended without a
+      // reply going out, so both count as a skip rather than a submission.
+      // `dryRunUnknown` is left to the adapter's own SUBMIT_REPLY_DRY_RUN entry, which is
+      // the only place that knows which of the two happened.
+      publishTimer.done({ outcome: 'skipped', reason: 'submitReply returned false', step: 'submit' });
+      finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
+      return;
+    }
+
+    __YTAR_DEBUG.debugLog('handleMatchReply: reply submission completed for comment id=' + comment.id);
+    publishTimer.done({ outcome: 'submitted', step: 'complete' });
     finish(S.COMPLETED, OUTCOME_FOR_REPORT.SUBMITTED);
-    return;
+  } catch (err) {
+    __YTAR_DEBUG.logError('handleMatchReply error:', err && err.message ? err.message : String(err));
+    if (publishTimer && typeof publishTimer.fail === 'function') {
+      publishTimer.fail(err, { outcome: 'failed', reason: err && err.message ? err.message : String(err) });
+    }
+    finish(S.ERROR, OUTCOME_FOR_REPORT.FAILED);
   }
-
-  // Step e: submit the reply (async; respects dryRun gate internally)
-  reportStage(S.SUBMITTING_REPLY, '', comment.id);
-  var submitted = await adapter.submitReply(replyBox);
-  if (!submitted) {
-    __YTAR_DEBUG.debugWarn('handleMatchReply: submitReply returned false for comment id=' + comment.id);
-    // submitReply() returns false in dry-run on purpose (nothing was clicked) and also
-    // when the button could not be found. Both are an attempt that ended without a
-    // reply going out, so both count as a skip rather than a submission.
-    // `dryRunUnknown` is left to the adapter's own SUBMIT_REPLY_DRY_RUN entry, which is
-    // the only place that knows which of the two happened.
-    publishTimer.done({ outcome: 'skipped', reason: 'submitReply returned false', step: 'submit' });
-    finish(S.IDLE, OUTCOME_FOR_REPORT.SKIPPED);
-    return;
-  }
-
-  __YTAR_DEBUG.debugLog('handleMatchReply: reply submission completed for comment id=' + comment.id);
-  publishTimer.done({ outcome: 'submitted', step: 'complete' });
-  finish(S.COMPLETED, OUTCOME_FOR_REPORT.SUBMITTED);
 }
 
 /**
@@ -1209,11 +1250,12 @@ function sendMessage(action, data) {
       if (response.result === 'MATCH' && response.reply) {
         // The local `data` object still has the full comment with .element;
         // the response only carries the stripped payload.
-        var localComment = data && data.comment ? data.comment : null;
+        var localComment = (data && data.comment) || (response.id && detectedCommentsMap.get(response.id)) || null;
+        if (!localComment && response.id) {
+          localComment = { id: response.id, element: null };
+        }
         if (localComment) {
-          enqueueReply(function () {
-            return handleMatchReply(localComment, response);
-          });
+          enqueueMatchReplyOnce(localComment, response);
         }
       } else if (response.result === 'MATCH' && !response.reply) {
         __YTAR_DEBUG.debugLog('MATCH but empty reply — skipping for comment id=' + (response.id || '?'));
@@ -1224,6 +1266,21 @@ function sendMessage(action, data) {
 
       resolve(response);
     });
+  });
+}
+
+// Listen for pushed match events from the background (in case message port timed out during long queue wait)
+if (chrome.runtime && chrome.runtime.onMessage) {
+  chrome.runtime.onMessage.addListener(function (message, sender, sendResponse) {
+    if (message && message.action === 'MATCH_REPLY_READY' && message.data) {
+      var resp = message.data;
+      if (resp.result === 'MATCH' && resp.reply && resp.id) {
+        var local = (detectedCommentsMap && detectedCommentsMap.get(resp.id)) || { id: resp.id, element: null };
+        enqueueMatchReplyOnce(local, resp);
+      }
+      if (typeof sendResponse === 'function') sendResponse({ received: true });
+      return false;
+    }
   });
 }
 

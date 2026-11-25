@@ -627,13 +627,26 @@ class YouTubeSiteAdapter {
     // 3. Author + text match across every live comment node.
     if (!element && (comment.author || comment.text)) {
       try {
-        const live = Array.from(document.querySelectorAll(YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD));
+        const selectors = [
+          YouTubeSiteAdapter.SELECTORS.COMMENT_THREAD,
+          YouTubeSiteAdapter.SELECTORS.COMMENT_VIEW_MODEL,
+          YouTubeSiteAdapter.SELECTORS.COMMENT_RENDERER
+        ].filter(Boolean).join(', ');
+        const live = Array.from(document.querySelectorAll(selectors));
         for (const candidate of live) {
           const parsed = this.parseComment(candidate);
           if (!parsed) continue;
-          const sameAuthor = String(parsed.author || '') === String(comment.author || '');
-          const sameText = this._collapse(parsed.text) === this._collapse(comment.text);
-          if (sameAuthor && sameText) {
+          const sameAuthor = Boolean(comment.author && String(parsed.author || '').trim() === String(comment.author).trim());
+          const rawEqual = this._collapse(parsed.text) === this._collapse(comment.text);
+          let normEqual = false;
+          if (!rawEqual && typeof normalizeArabic === 'function') {
+            try {
+              const norm1 = normalizeArabic(parsed.text);
+              const norm2 = normalizeArabic(comment.text);
+              normEqual = Boolean(norm1 && norm2 && norm1 === norm2);
+            } catch (_) {}
+          }
+          if (sameAuthor && (rawEqual || normEqual)) {
             element = candidate;
             break;
           }
@@ -701,11 +714,30 @@ class YouTubeSiteAdapter {
     const el = comment.element;
     let btn = null;
 
-    // Strategy 1: button with aria-label "Reply" inside the comment thread
+    // Strategy 1: button with aria-label "Reply" or Arabic "رد" inside the comment thread
     try {
-      btn = el.querySelector('button[aria-label="Reply"]');
+      btn = el.querySelector('button[aria-label="Reply"], button[aria-label="رد"], button[aria-label="ردّ"]');
     } catch (_) {}
     if (btn) return btn;
+
+    // Helper: match "Reply" / "رد" / "ردّ" without matching "replies" / "ردود" (View replies).
+    const isReplyLabel = (raw) => {
+      const s = String(raw || '').trim().toLowerCase();
+      if (!s) return false;
+      if (s === 'reply' || s === 'رد' || s === 'ردّ') return true;
+      if (s.includes('replies') || s.includes('ردود')) return false;
+      return /\breply\b/.test(s) || /(?:^|\s)ردّ?(?:\s|$)/.test(s);
+    };
+
+    // Strategy 1b: button with aria-label containing "Reply" or "رد" (e.g. "Reply to @...", "رد على التعليق")
+    try {
+      const candidates = el.querySelectorAll('button[aria-label*="Reply" i], button[aria-label*="رد" i]');
+      for (const b of candidates) {
+        if (isReplyLabel(b.getAttribute && b.getAttribute('aria-label'))) {
+          return b;
+        }
+      }
+    } catch (_) {}
 
     // Strategy 2: element with data-command="reply"
     try {
@@ -715,16 +747,40 @@ class YouTubeSiteAdapter {
 
     // Strategy 3: yt-touch-button wrapper containing a tp-yt-paper-icon-button
     try {
-      const touchBtn = el.querySelector('yt-touch-button[aria-label="Reply"]');
-      if (touchBtn) return touchBtn;
+      const touchBtns = el.querySelectorAll('yt-touch-button[aria-label="Reply"], yt-touch-button[aria-label*="رد"]');
+      for (const touchBtn of touchBtns) {
+        if (isReplyLabel(touchBtn.getAttribute && touchBtn.getAttribute('aria-label'))) {
+          return touchBtn;
+        }
+      }
     } catch (_) {}
 
-    // Strategy 4: any button whose textContent contains "reply" (case-insensitive)
+    // Strategy 4: any button whose textContent or aria-label is "reply", "رد", or "ردّ"
     try {
-      const buttons = el.querySelectorAll('button');
+      const buttons = el.querySelectorAll('button, [role="button"], ytd-button-renderer');
       for (const b of buttons) {
-        if ((b.textContent || '').toLowerCase().includes('reply')) {
-          return b;
+        const text = (b.textContent || '').trim();
+        const aria = (b.getAttribute && b.getAttribute('aria-label')) || '';
+        if (isReplyLabel(text) || isReplyLabel(aria)) {
+          return (b.querySelector && b.querySelector('button')) || b;
+        }
+      }
+    } catch (_) {}
+
+    // Strategy 5: check wider thread container if el was a child node
+    try {
+      const thread = (el.closest && (el.closest('ytd-comment-thread-renderer') || el.closest('ytd-comment-view-model'))) || el.parentElement;
+      if (thread && thread !== el) {
+        const actionButtons = thread.querySelector('#action-buttons, ytd-comment-engagement-bar');
+        if (actionButtons) {
+          const threadBtns = actionButtons.querySelectorAll('button, [role="button"]');
+          for (const b of threadBtns) {
+            const text = (b.textContent || '').trim();
+            const aria = (b.getAttribute && b.getAttribute('aria-label')) || '';
+            if (isReplyLabel(text) || isReplyLabel(aria)) {
+              return (b.querySelector && b.querySelector('button')) || b;
+            }
+          }
         }
       }
     } catch (_) {}
@@ -1174,6 +1230,36 @@ class YouTubeSiteAdapter {
           resolve(editor);
           return;
         }
+
+        // Strategy 1c: modern/alternate replybox renderer (ytd-comment-reply-dialog-renderer or ytd-commentbox)
+        try {
+          editor = scope.querySelector('ytd-comment-reply-dialog-renderer, ytd-commentbox#commentbox, ytd-commentbox, #reply-dialog ytd-commentbox');
+        } catch (_) {}
+        if (editor) {
+          openTimer.done({
+            replyBoxFound: true,
+            matchedSelector: 'ytd-comment-reply-dialog-renderer/ytd-commentbox',
+            commentStillConnected: adapter.isCommentDetached(comment) === false,
+            searchScopeStillConnected: scope ? scope.isConnected !== false : false
+          });
+          resolve(editor);
+          return;
+        }
+
+        // Strategy 1d: contenteditable root directly inside scope
+        try {
+          const directEditable = scope.querySelector('#contenteditable-root[contenteditable="true"], div#contenteditable-root');
+          if (directEditable) {
+            openTimer.done({
+              replyBoxFound: true,
+              matchedSelector: '#contenteditable-root (scoped)',
+              commentStillConnected: adapter.isCommentDetached(comment) === false,
+              searchScopeStillConnected: scope ? scope.isConnected !== false : false
+            });
+            resolve(directEditable);
+            return;
+          }
+        } catch (_) {}
 
         // Strategy 2: textbox with id="textbox" inside the reply box.
         // Scoped to the thread first: a document-wide query returns the first match

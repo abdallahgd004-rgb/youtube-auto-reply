@@ -4980,7 +4980,7 @@ check('no eval or new Function in production code', () => {
 // ── 18.2 packaging readiness ─────────────────────────────────────────────────
 
 check('the repo has no stray development files in src/', () => {
-  const allowed = new Set(['.js', '.html', '.css', '.json']);
+  const allowed = new Set(['.js', '.html', '.css', '.json', '.png']);
   const strays = [];
   const walk = (dir) => {
     for (const entry of readdirSync(dir)) {

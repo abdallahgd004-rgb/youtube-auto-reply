@@ -1374,7 +1374,6 @@ async function processJob(job) {
       // content script reading `undefined`, which reads the same as "not asked to", so the
       // two cases would be indistinguishable in the log.
       verdict.heartAfterInsert = shouldHeartAfterInsert(verdict, currentSettings);
-      verdict.targetReplyWorkflow = (currentSettings.targetReplyHeartingEnabled === true && typeof verdict.ruleId === 'string' && !!verdict.ruleId);
       if (verdict.heartAfterInsert) {
         debugLog('COMMENT_DETECTED: will heart the comment after inserting the draft');
       }
@@ -2197,11 +2196,21 @@ async function handleMessage(message, sender, sendResponse) {
 
     // Enqueue the job and start (or keep) the worker.
     // Only `id` is required (dedup key); `text` validated in parseComment; `author` may be empty.
+    const tabId = sender.tab?.id;
     let _responded = false;
     const respondOnce = (response) => {
       if (!_responded) {
         _responded = true;
-        sendResponse(response);
+        try {
+          sendResponse(response);
+        } catch (_) {}
+        if (response && response.result === 'MATCH' && response.reply && tabId && chrome.tabs && chrome.tabs.sendMessage) {
+          try {
+            chrome.tabs.sendMessage(tabId, { action: 'MATCH_REPLY_READY', data: response }, () => {
+              void chrome.runtime.lastError;
+            });
+          } catch (_) {}
+        }
       }
     };
     const job = { id, text, fingerprint, pageSessionId, hearted, creatorReplied, respondOnce };

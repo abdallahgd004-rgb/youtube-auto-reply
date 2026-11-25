@@ -1,67 +1,58 @@
-# YouTube Auto Reply 🤖⚡
+<div align="center">
 
-> **إضافة كروم مفتوحة المصدر للرد الذكي والآلي على تعليقات يوتيوب باستخدام نماذج ذكاء اصطناعي تعمل محلياً على جهازك.**  
-> An open-source Chrome extension that replies to YouTube comments automatically, powered by **local LLMs** (via [LM Studio](https://lmstudio.ai) or any OpenAI-compatible local server).  
-> **100% Private & Local: بياناتك وتعليقات قناتك لا تغادر جهازك أبداً.**
+<img src="src/icons/icon128.png" alt="YouTube Auto Reply Icon" width="110" height="110" />
 
----
+# YouTube Auto Reply
+
+**Local-First AI Comment Assistant for YouTube Creators**  
+**إضافة كروم مفتوحة المصدر للرد الذكي والآلي على تعليقات يوتيوب باستخدام نماذج ذكاء اصطناعي محلية**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-green.svg)](src/manifest.json)
-[![Local First](https://img.shields.io/badge/AI-Local%20First%20(LM%20Studio)-purple.svg)](https://lmstudio.ai)
-[![No Cloud / No API Keys](https://img.shields.io/badge/Privacy-Zero%20Telemetry-orange.svg)](#privacy--safety)
+[![Manifest V3](https://img.shields.io/badge/Chrome-Manifest%20V3-16a34a.svg)](src/manifest.json)
+[![Local First](https://img.shields.io/badge/AI-Local%20First%20(LM%20Studio)-7c3aed.svg)](https://lmstudio.ai)
+[![Zero Dependencies](https://img.shields.io/badge/Build-Zero%20npm%20Dependencies-0ea5e9.svg)](#developer-guide--testing)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local%20%7C%20Zero%20Telemetry-ea580c.svg)](#safety--limits)
+
+[Summary](#-summary--at-a-glance) •
+[Features](#-key-features--المميزات-الرئيسية) •
+[Architecture](#-architecture--pipeline) •
+[Knowledge Base](#-custom-knowledge-base) •
+[Quickstart](#-quickstart--دليل-التثبيت) •
+[Testing](#-developer-guide--testing)
+
+</div>
 
 ---
 
-## 📑 جدول المحتويات / Table of Contents
+## ✨ Summary — At a Glance
 
-- [نبذة عن المشروع (Overview)](#نبذة-عن-المشروع-overview)
-- [المميزات الرئيسية (Key Features)](#المميزات-الرئيسية-key-features)
-- [كيف يعمل المشروع هندسياً (Architecture & Pipeline)](#كيف-يعمل-المشروع-هندسيا-architecture--pipeline)
-- [إضافة قاعدة المعرفة الخاصة بك (Custom Knowledge Base)](#إضافة-قاعدة-المعرفة-الخاصة-بك-custom-knowledge-base)
-- [دليل التثبيت والتشغيل السريع (Quickstart)](#دليل-التثبيت-والتشغيل-السريع-quickstart)
-- [أنماط الرد (Reply Modes)](#أنماط-الرد-reply-modes)
-- [الأمان وحماية القناة (Safety & Limits)](#الأمان-وحماية-القناة-safety--limits)
-- [لوحة التحكم الجانبية (Side Panel)](#لوحة-التحكم-الجانبية-side-panel)
-- [دليل المطورين والاختبارات (Developer Guide & Testing)](#دليل-المطورين-والاختبارات-developer-guide--testing)
-- [استكشاف الأخطاء وحلها (Troubleshooting)](#استكشاف-الأخطاء-وحلها-troubleshooting)
+**YouTube Auto Reply** is an open-source **Chrome Manifest V3** extension that helps YouTube creators draft and publish context-aware replies to viewer comments using a **local LLM** (via [LM Studio](https://lmstudio.ai) or any OpenAI-compatible server at `http://localhost:1234/v1`).
 
----
+- **100% Local & Private:** Comments and knowledge files never leave your machine—no cloud APIs, no subscriptions, and zero telemetry.
+- **Zero-Dependency Pure ES Modules:** No bundler, no `node_modules`, no build step—load `src/` directly in Chrome.
+- **Built for Arabic & English:** Includes Arabic normalization (Egyptian dialect & MSA, diacritics, and Eastern/Western numerals) alongside English.
+- **Evidence-Grounded RAG (No Hallucinations):** Answers questions from your own local Markdown (`.md`) folder using two-stage retrieval, an answerability gate, and strict numeric/fact grounding validation.
+- **Safe by Default:** Ships with **Dry Run** enabled (drafts replies into the comment box without clicking Submit), hourly rate limits, random human-like delays, creator-heart filtering, and anti-repetition checks.
 
-## نبذة عن المشروع (Overview)
-
-تم بناء هذه الإضافة لمساعدة صناع المحتوى والشركات وأصحاب القنوات التعليمية والتجارية على يوتيوب في الرد على استفسارات المتابعين والجمهور بدقة وسرعة وبشكل طبيعي تماماً:
-- **محلي بالكامل (Local-first):** تتصل الإضافة بنموذج الذكاء الاصطناعي العامل على جهازك عبر `http://localhost:1234/v1` (مثل LM Studio أو Ollama)، دون إرسال التعليقات إلى خوادم سحابية وبدون اشتراكات أو رسوم API.
-- **دعم متفوق للغة العربية والإنجليزية:** معالجة خاصة للهجة المصرية، الفصحى، وتطبيع الحروف وعلامات الترقيم والأرقام الهندية/العربية.
-- **نظام استرجاع معرفي مدعوم بالأدلة (RAG):** تجيب الإضافة على الأسئلة من واقع ملفات الماركداون (`.md`) الخاصة بك دون هلوسة أو اختراع أرقام وأسعار غير موجودة.
-- **تحكم بشري كامل (Human-in-the-loop):** تكتب الإضافة المسودة داخل صندوق التعليق، مع وضع اختبار تجريبي (**Dry Run**) مفعل افتراضياً لتجربة كل شيء بأمان تام.
+> **باختصار:** إضافة كروم مجانية ومفتوحة المصدر تساعد صناع المحتوى على الرد على تعليقات يوتيوب بسرعة ودقة باستخدام الذكاء الاصطناعي **محلياً على جهازك بالكامل** عبر LM Studio، مع دعم متفوق للغة العربية والإنجليزية، ونظام قاعدة معرفة (`.md`) يمنع الهلوسة أو اختراع الأسعار، ووضع معاينة آمن (**Dry Run**) مفعل افتراضياً.
 
 ---
 
-## المميزات الرئيسية (Key Features)
+## 🚀 Key Features — المميزات الرئيسية
 
-1. **أنماط رد متعددة (Multi-Mode Engine):**
-   - **Trigger Mode:** ردود مخصصة ذكية عند مطابقة عبارات أو نوايا محددة.
-   - **Knowledge Mode (RAG):** استخراج الإجابات من قاعدة المعرفة الخاصة بك، مع التحقق الصارم من صحة الأرقام والتواريخ.
-   - **Hybrid Mode:** الأفضل للجميع — يبحث في الـ Triggers أولاً، وإذا لم يجد ينتقل تلقائياً لقاعدة المعرفة.
-   - **Fixed Reply Mode:** ردود فورية محددة وثابتة للأسئلة الشائعة جداً.
-2. **منع الهلوسة وفحص الأدلة (Sufficiency & Grounding Gates):**
-   - إذا سأل المتابع عن شيء غير مذكور في ملفاتك، يتخطى النظام التعليق تلقائياً ولا يخترع إجابة.
-   - فحص رياضي ودلالي للأرقام والأسعار والمدد الزمنية المذكورة في الرد ومقارنتها بالأصل.
-3. **ذكاء التعامل مع تفاعلات القناة:**
-   - **تخطي التعليقات التي وضعت لها قلباً (`Ignore Hearted`):** احتراماً لتفاعلك الشخصي مع المتابع، لا يتدخل الذكاء الاصطناعي في تعليق قرأته وتفاعلت معه بنفسك.
-   - **وضع قلب للمشاهد عند الرد (`Target Reply Hearting`):** خيار يضع قلباً تلقائياً على التعليق عند تجهيز الرد له لتعزيز تفاعل المشاهد.
-   - **متابعة التعليقات المُجاب عليها مسبقاً (`Answered Follow-ups`):** فحص التعليقات التي قمت بالرد عليها سابقاً واقتراح مسودات جديدة إذا كان المتابع يحتاج متابعة إضافية.
-4. **حماية من الحظر والإزعاج (Anti-Spam & Rate Limiting):**
-   - حد أقصى للردود بالساعة (Rolling Hour Cap).
-   - تأخير زمني عشوائي وطبيعي بين الردود (Inter-comment Random Delays).
-   - منع تكرار نفس الرد وحظر عبارات محددة (Banned Phrases & Anti-repetition).
+| Feature | Description | الوصف |
+|---|---|---|
+| **Multi-Mode Reply Engine** | **Trigger**, **Knowledge (RAG)**, **Hybrid**, and **Fixed Reply** modes | أنماط رد متعددة: كلمات مشغلة، قاعدة معرفة، هجين، وردود ثابتة |
+| **Anti-Hallucination Gates** | Intent analysis, sufficiency gate, and numeric/fact grounding validator | بوابات تحقق تمنع اختراع الأسعار أو التواريخ أو المعلومات غير المذكورة |
+| **Creator Interaction Aware** | Skips creator-hearted comments, detects existing owner replies, optional target-reply hearting, and **Answered Follow-ups** board | تخطي التعليقات ذات القلب، كشف ردود صاحب القناة، واقتراح متابعة للتعليقات المجابة |
+| **Channel Safety & Limits** | Dry Run default, rolling hourly cap, random delays, banned phrases, and cross-comment anti-repetition | حماية القناة: وضع تجريبي افتراضي، حد ساعي، تأخير عشوائي، وحظر التكرار |
+| **Persistent Side Panel** | Always-open Chrome Side Panel with live stats, LM Studio status, and follow-up drafts | لوحة جانبية دائمة لمتابعة الإحصائيات وحالة الخادم ومسودات المتابعة |
 
 ---
 
-## كيف يعمل المشروع هندسياً (Architecture & Pipeline)
+## 🏗 Architecture & Pipeline
 
-يعمل المشروع وفق بنية معمارية قوية ومنظمة تعتمد على **Chrome Extension Manifest V3** دون الحاجة إلى أي حزم خارجية أو مجمع كود (Zero npm dependencies / Pure ES Modules):
+The extension runs as pure ES modules in Chrome Manifest V3 (`src/background/`, `src/core/`, `src/popup/`, `src/options/`) paired with classic content scripts (`src/content/`) on YouTube:
 
 ```mermaid
 flowchart TD
@@ -69,13 +60,13 @@ flowchart TD
     B --> C{"Pre-filter Checks"}
     C -- "Own Comment / Hearted / Handled" --> D["Skip Comment"]
     C -- "Eligible Comment" --> E["Queue & Rate Limiter"]
-    
+
     E --> F{"Reply Router"}
-    
+
     F -- "Trigger Mode" --> G["Semantic Trigger Matcher"]
     G -- "Match Found" --> H["Prompt Builder & LM Studio"]
     G -- "No Match" --> D
-    
+
     F -- "Knowledge Mode / Hybrid Fallback" --> I["Intent Analyzer"]
     I --> J["Two-stage Retrieval (BM25 + Semantic)"]
     J --> K{"Answerability Gate"}
@@ -84,186 +75,144 @@ flowchart TD
     L --> M{"Grounding Validator"}
     M -- "Facts Unsupported" --> N["Bounded Regeneration / Skip"]
     M -- "Supported & Verified" --> O["Reply Validator (Safety, Length, Dedup)"]
-    
+
     H --> O
     O --> P{"Posting Mode"}
     P -- "Dry Run ON" --> Q["Draft to Comment Box (No Submit)"]
     P -- "Live Mode" --> R["Draft & Confirm Publish"]
-    
+
     Q --> S["Side Panel Logs & Stats Update"]
     R --> S
 ```
 
 ---
 
-## إضافة قاعدة المعرفة الخاصة بك (Custom Knowledge Base)
+## 📚 Custom Knowledge Base
 
 > [!IMPORTANT]
-> **قاعدة المعرفة الحالية ليست مدمجة في المستودع لأنها خاصة بكل مستخدم.**  
-> تم تضمين مجلد نموذجي توضيحي جاهز باسم [`knowledge.example/`](knowledge.example/) يوضح الهيكل الصحيح، ويمكنك إضافة ملفاتك الخاصة بكل سهولة وستعمل الميزة فوراً!
+> **Your private knowledge base is not bundled in this repository.**  
+> A ready-to-use template folder is included at [`knowledge.example/`](knowledge.example/) so you can copy it and add your own `.md` files immediately.
 
-### خطوات إضافة قاعدة المعرفة الخاصة بك:
+1. **Create your local knowledge folder:**
+   ```bash
+   cp -r knowledge.example my-knowledge
+   ```
+2. **Organize your `.md` files with clear headings** (the retriever indexes both the heading path and body):
+   ```markdown
+   # Advanced Programming Book
 
-1. **إنشاء مجلد المعرفة على جهازك:**
-   - يمكنك أخذ نسخة من المجلد النموذجي:
-     ```bash
-     cp -r knowledge.example my-knowledge
-     ```
-   - أو إنشاء أي مجلد في أي مكان على جهازك يحتوي على ملفات بصيغة `.md` أو `.markdown`.
-2. **تنظيم الملفات والعناوين:**
-   - قسّم ملفاتك حسب المواضيع (مثل: أسئلة شائعة، دورات، أسعار، تفاصيل المنتجات).
-   - اجعل العناوين واضحة ومحددة لأن محرك البحث يستند إلى مسار العناوين:
-     ```markdown
-     # كتاب البرمجة المتقدمة
-     
-     ## سعر الكتاب والنسخة الرقمية
-     سعر الكتاب المطبوع هو 250 جنيه، والنسخة الرقمية 150 جنيه.
-     
-     ## الشحن والتوصيل
-     التوصيل متاح لجميع المحافظات خلال 3 أيام عمل.
-     ```
-3. **ربط المجلد في الإضافة:**
-   - افتح صفحة إعدادات الإضافة (**Options**).
-   - في قسم **Folder**، اضغط على زر **Choose folder…** واختر المجلد الذي أنشأته.
-   - وافق على صلاحية القراءة التي يطلبها المتصفح للمجلد.
-   - اضغط **Sync now** لربط وفهرسة الملفات فوراً!
-4. **تحديث المعرفة:**
-   - بمجرد تعديل أو إضافة أي ملف `.md` في المجلد على جهازك، سيتم مزامنته تلقائياً كل 5 دقائق، أو يمكنك الضغط على **Sync now** لتحديثه لحظياً.
+   ## Price (Print & Digital)
+   The printed edition is 250 EGP, and the digital edition is 150 EGP.
+
+   ## Shipping & Delivery
+   Delivery is available to all governorates within 3 business days.
+   ```
+3. **Link it in the extension:**
+   - Open **Options** → **Knowledge** → **Folder** → click **Choose folder…** and select `my-knowledge`.
+   - Grant read permission when prompted, then click **Sync now**.
+   - Edits to `.md` files sync automatically every 5 minutes or on demand via **Sync now**.
 
 ---
 
-## دليل التثبيت والتشغيل السريع (Quickstart)
+## ⚡ Quickstart — دليل التثبيت
 
-### المتطلبات الأساسية:
-1. متصفح **Google Chrome** أو أي متصفح مبني على Chromium (مثل Brave أو Edge).
-2. برنامج [LM Studio](https://lmstudio.ai) مثبت على جهازك مع تحميل أي نموذج مفضل لديك (مثل `gemma-2`, `qwen-2.5`, `llama-3.1`).
+### 1. Start your local LLM server (LM Studio)
+1. Open [LM Studio](https://lmstudio.ai) and load a model (e.g., `qwen2.5`, `gemma-2`, or `llama-3.1`).
+2. Go to the **Developer** (Local Server) tab and click **Start Server** on `http://localhost:1234`.
 
-### 1. تشغيل خادم الذكاء الاصطناعي المحلي (LM Studio)
-1. افتح LM Studio وقم بتحميل النموذج المراد استخدامه.
-2. انتقل إلى تبويب **Developer** (أو Local Server) واضغط **Start Server**.
-3. تأكد أن العنوان الافتراضي هو `http://localhost:1234`.
-
-### 2. تثبيت الإضافة في المتصفح
-1. قم بتنزيل أو استنساخ هذا المستودع:
+### 2. Load the extension in Chrome
+1. Clone or download this repository (click **Code → Download ZIP** on GitHub, or clone via git):
    ```bash
-   git clone https://github.com/your-username/youtube-auto-reply.git
+   git clone <repository-url>
    cd youtube-auto-reply
    ```
-2. افتح المتصفح وانتقل إلى: `chrome://extensions/`.
-3. فعّل **وضع مطور البرامج (Developer mode)** من الزاوية العلوية اليمنى.
-4. اضغط على **Load unpacked** (تحميل إضافة لم يتم حزمها).
-5. **اختر مجلد `src` داخل المشروع** (حيث يوجد ملف `manifest.json`).
+2. Open `chrome://extensions/` in Chrome (or Brave/Edge).
+3. Enable **Developer mode** (top-right toggle).
+4. Click **Load unpacked** and select the **`src/`** folder (not the repo root).
 
 > [!NOTE]
-> تأكد من اختيار مجلد `src/` وليس المجلد الرئيسي للمشروع، لأن إعدادات Manifest V3 توجد داخل `src/`.
+> Always select **`src/`** when loading unpacked—that is where [`src/manifest.json`](src/manifest.json) lives.
 
-### 3. ضبط الإعدادات واختبار الاتصال
-1. ثبّت أيقونة الإضافة في شريط الأدوات (Pin Extension).
-2. اضغط على الأيقونة لفتح **لوحة التحكم الجانبية (Side Panel)**، ثم اضغط على **Open settings** لفتح صفحة الإعدادات.
-3. تأكد من ظهور النماذج في قائمة **Model**، واضغط **Test Connection** للتأكد من الاتصال بـ LM Studio بنجاح.
+### 3. Configure & Test
+1. Pin **YouTube Auto Reply** to your Chrome toolbar and click the icon to open the **Side Panel**.
+2. Click **Open settings**, choose your loaded **Model**, and click **Test Connection**.
+3. Keep **Dry Run** enabled while testing on a YouTube video—you will see drafted replies appear in the comment box without being submitted.
 
 ---
 
-## أنماط الرد (Reply Modes)
+## 🎛 Reply Modes
 
-يمكنك التبديل بين أنماط الرد من صفحة **Options**:
+Switch between modes anytime in **Options**:
 
-| النمط (Mode) | طريقة العمل | متى تستخدمه؟ |
+| Mode | How It Works | Best For |
 |---|---|---|
-| **Trigger** | يعتمد على الكلمات المفتاحية والعبارات المشغلة المحددة، ثم يصيغ الرد بناءً على الـ Prompt. | عندما تكون لديك سيناريوهات ثابتة ومحدودة لا تحتاج ملفات خارجية. |
-| **Knowledge** | يبحث في ملفات الماركداون المربوطة فقط ويستخلص منها الإجابة مدعومة بالحقائق الصريحة. | للقنوات التي تتلقى استفسارات كثيرة عن مواصفات أو تفاصيل دقيقة. |
-| **Hybrid (موصى به)** | يبحث عن تطابق في الـ Triggers أولاً، وإذا لم يجد، يحيل السؤال تلقائياً لقاعدة المعرفة. | يجمع بين سرعة القوالب المحددة ومرونة البحث في قاعدة المعرفة الشاملة. |
+| **Trigger** | Matches viewer intent against your custom trigger rules, then generates a reply (or uses a fixed reply). | Common recurring intents with tailored responses. |
+| **Knowledge** | Retrieves evidence exclusively from your linked Markdown files and validates every fact/number before replying. | Product specs, pricing, courses, and detailed FAQs. |
+| **Hybrid (Recommended)** | Checks **Triggers** first; if none match, falls back to **Knowledge Mode**. | Combining fast trigger rules with full knowledge-base coverage. |
 
 ---
 
-## الأمان وحماية القناة (Safety & Limits)
+## 🛡 Safety & Limits
 
-تم تصميم هذا المشروع مع وضع سلامة القناة وحساب يوتيوب على رأس الأولويات:
-
-- **الوضع التجريبي الافتراضي (Dry Run Mode):**  
-  يعمل تلقائياً عند أول تشغيل، حيث يقوم النظام بتجهيز الرد ووضعه في صندوق التعليقات **دون الضغط على زر الإرسال (Submit)** حتى تعاين النتائج بنفسك وتطمئن لجودتها.
-- **حد أقصى للردود بالساعة (Max Replies per Hour):**  
-  افتراضياً 30 رداً في الساعة لمنع أي سلوك قد تعتبره منصة يوتيوب غير طبيعي.
-- **فترات انتظار عشوائية (Random Inter-comment Delay):**  
-  تأخير زمني بين 8 و 20 ثانية بين كل رد وآخر لمحاكاة السلوك البشري.
-- **حظر الكلمات الممنوعة (Banned Phrases):**  
-  قائمة بكلمات تمنع نشر الرد في حال ظهورها (مثل منع النموذج من قول "أنا ذكاء اصطناعي" أو عبارات غير ملائمة).
-- **منع التكرار (Anti-Repetition):**  
-  عدم إرسال نفس الرد المتطابق لعدة مستخدمين خلال فترة زمنية متقاربة لتفادي الظهور بمظهر الحسابات الآلية.
+- **Dry Run Mode (Default ON):** Drafts replies into the YouTube reply box without clicking Submit so you can review output quality first.
+- **Rolling Hourly Cap:** Limits replies per hour (default `30/hr`) to keep activity natural.
+- **Random Inter-Comment Delay:** Waits `8s–20s` (configurable) between replies.
+- **Banned Phrases & Validation:** Blocks empty replies, reasoning leaks, code fences, placeholders, and forbidden phrases.
+- **Anti-Repetition:** Prevents sending near-identical replies across different comments.
 
 ---
 
-## لوحة التحكم الجانبية (Side Panel)
+## 🧪 Developer Guide & Testing
 
-توفر الإضافة واجهة جانبية دائمة ومريحة (Chrome Side Panel) تبقى مفتوحة أثناء تصفحك ليوتيوب:
-- إحصائيات فورية: عدد التعليقات المكتشفة، التي طابقت الشروط، والتي تم الرد عليها أو تجاوزها.
-- حالة الاتصال الفوري بخادم LM Studio والنموذج المفعل.
-- قائمة بالتعليقات التي تحتاج متابعة (**Answered Follow-ups**) مع زر نسخ فوري للردود المقترحة.
-- زر إيقاف مؤقت وتشغيل بنقرة واحدة.
+This repository includes **40+ automated test suites** run in headless Chrome over CDP plus a packaging/invariant verifier:
 
----
-
-## دليل المطورين والاختبارات (Developer Guide & Testing)
-
-المشروع مصمم ليكون نظيفاً وبدون أي مكتبات خارجية معقدة:
-
-### هيكل المجلدات:
-```
+### Project Structure
+```text
 youtube-auto-reply/
-├── src/                     # كود الإضافة الفعلي (المُحمّل في المتصفح)
-│   ├── manifest.json        # ملف التعريف الرئيسي (MV3)
-│   ├── background/          # Service Worker وخادم الاتصال بالـ API
-│   ├── core/                # المنطق البرمجي المجرد (البحث، الفهرسة، الأمان)
-│   ├── content/             # مراقبة وتحليل صفحة يوتيوب (DOM Adapter)
-│   ├── options/             # صفحة الإعدادات الشاملة
-│   └── popup/               # واجهة الـ Side Panel الجانبية
-├── knowledge.example/       # نموذج توضيحي لقاعدة المعرفة
-├── scripts/                 # سكريبتات الاختبار والتحقق والحزم
-│   ├── run-tests.mjs        # مشغل الاختبارات الآلي (CDP Headless Chrome)
-│   ├── verify-extension.mjs # فحص معايير الأمان والتغليف قبل الإطلاق
-│   └── package.sh           # بناء ملف الـ ZIP النهائي
-├── docs/                    # وثائق المعمارية وقرارات الأمان
-├── LICENSE                  # رخصة MIT مفتوحة المصدر
-└── README.md                # هذا الملف
+├── src/                      # Extension root (Load unpacked target)
+│   ├── manifest.json         # Manifest V3 definition
+│   ├── icons/                # Extension icons (16, 48, 128px)
+│   ├── background/           # Service worker & LM Studio API client
+│   ├── core/                 # Platform-agnostic logic, RAG, safety, tests
+│   ├── content/              # YouTube DOM adapter & classic content scripts
+│   ├── options/              # Options page UI
+│   └── popup/                # Chrome Side Panel UI
+├── knowledge.example/        # Sample Markdown knowledge base
+├── scripts/
+│   ├── run-tests.mjs         # Headless Chrome test runner (40 suites)
+│   ├── verify-extension.mjs  # Invariant & packaging verifier (69 checks)
+│   └── package.sh            # Builds dist/youtube-auto-reply-<version>.zip
+├── docs/                     # Architecture & security review docs
+├── LICENSE                   # MIT License
+└── README.md
 ```
 
-### تشغيل الاختبارات الآلية (Automated Tests):
-يحتوي المشروع على أكثر من 40 جناح اختبار يغطي جميع طبقات النظام (1000+ فحص واختبار دقيق):
-
+### Run Tests & Verification
 ```bash
-# تشغيل جميع الاختبارات في متصفح كروم بدون واجهة (Headless)
+# Run all 40 test suites in headless Chrome
 node scripts/run-tests.mjs
 
-# تشغيل اختبار محدد (مثلاً: التحقق من المعرفة)
+# Run a specific suite by path fragment
 node scripts/run-tests.mjs knowledge
-```
 
-### التحقق من تكامل الحزمة والامتثال (Verification):
-```bash
+# Run packaging & invariant checks
 node scripts/verify-extension.mjs
-```
 
-### بناء ملف ZIP للتوزيع:
-```bash
+# Build installable ZIP in dist/
 bash scripts/package.sh
-# ينتج الملف المضغوط الجاهز داخل: dist/youtube-auto-reply-x.x.x.zip
 ```
 
 ---
 
-## استكشاف الأخطاء وحلها (Troubleshooting)
+## 🔧 Troubleshooting
 
-- **قائمة النماذج فارغة أو تظهر "Unable to load models":**  
-  تأكد أن برنامج LM Studio قيد التشغيل، وأن الخادم المحلي (Local Server) مفعل على `http://localhost:1234`.
-- **الردود تُكتب في الصندوق ولكن لا يتم نشرها:**  
-  تحقق من حالة **Posting** في اللوحة الجانبية؛ إذا كانت `Dry run`، فالإضافة تعمل في وضع المعاينة الآمن ولن تضغط "نشر" تلقائياً حتى تقوم بإيقاف Dry Run من صفحة الإعدادات.
-- **توقف النظام عن الرد بعد عدد معين من التعليقات:**  
-  لقد وصلت إلى الحد الأقصى للساعة (**Max replies / hour**)، وسيقوم النظام باستئناف العمل تلقائياً مع بدء الساعة الجديدة.
-- **تفعيل السجلات التشخيصية (Diagnostics Logging):**  
-  إذا واجهت أي مشكلة غير متوقعة، يمكنك تفعيل **Diagnostics logging** من تبويب *Safety & limits* في الإعدادات، ثم فتح DevTools الخاص بالـ Service Worker لقراءة السجلات التفصيلية.
+- **Models list is empty / "Unable to load models":** Ensure LM Studio is running and its Local Server is active at `http://localhost:1234`.
+- **Replies are typed into the box but not posted:** **Dry Run** is enabled (check the Side Panel). Disable Dry Run in Options when you are ready for live posting.
+- **Extension stopped replying mid-session:** You likely reached the **Max replies / hour** cap; it resumes automatically as the rolling window clears.
+- **Need detailed logs:** Enable **Diagnostics logging** under *Options → Safety & limits*, reload the YouTube tab, and inspect the Service Worker console in `chrome://extensions/`.
 
 ---
 
-## 📄 الترخيص (License)
+## 📄 License
 
-هذا المشروع مرخص تحت رخصة **[MIT License](LICENSE)** — المشروع مفتوح المصدر بالكامل ومتاح للاستخدام الشخصي والتجاري والتطوير بحرية.
+Released under the **[MIT License](LICENSE)** — free for personal and commercial use, modification, and distribution.
